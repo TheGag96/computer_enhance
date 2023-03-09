@@ -13,8 +13,54 @@ Mov_Mode :: enum u8 #specified {
   REG_MODE         :: 0b11;
 }
 
-disassemble :: (bytes: [] u8) -> string {
+Opcode_Type :: enum u8 {
+  NO_OP;     // No operation
+  MOV_RM2R;  // Register/memory to/from register
+  MOV_I2RM;  // Immediate to register/memory
+  MOV_I2R;   // Immediate to register
+  MOV_M2A;   // Memory to accumulator
+  MOV_A2M;   // Accumulator to memory
+  MOV_RM2S;  // Register/memory to segment register
+  MOV_S2RM;  // Segment register to register/memory
+  // more to come...
+}
 
+opcode_table : [256] Opcode_Type : .[
+  /* 0x00-0x0F */
+  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  /* 0x10-0x1F */
+  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  /* 0x20-0x2F */
+  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  /* 0x30-0x3F */
+  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  /* 0x40-0x4F */
+  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  /* 0x50-0x5F */
+  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  /* 0x60-0x6F */
+  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  /* 0x70-0x7F */
+  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  /* 0x80-0x8F */
+  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .MOV_RM2R, .MOV_RM2R, .MOV_RM2R, .MOV_RM2R, .MOV_S2RM, .NO_OP,    .MOV_RM2S, .NO_OP,
+  /* 0x90-0x9F */
+  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  /* 0xA0-0xAF */
+  .MOV_M2A,  .MOV_M2A,  .MOV_A2M,  .MOV_A2M,  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  /* 0xB0-0xBF */
+  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,
+  /* 0xC0-0xCF */
+  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .MOV_I2RM, .MOV_I2RM, .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  /* 0xD0-0xDF */
+  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  /* 0xE0-0xEF */
+  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  /* 0xF0-0xFF */
+  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+];
+
+disassemble :: (bytes: [] u8) -> string {
   builder: String_Builder;
 
   init_string_builder(*builder);
@@ -26,123 +72,118 @@ disassemble :: (bytes: [] u8) -> string {
   while runner.count {
     first := runner[0];
 
-    // Register/memory to/from register
-    if      (first & 0b11111100) == 0b100010_00 {
-      mark := get_temporary_storage_mark();
-      defer set_temporary_storage_mark(mark);
+    if #complete opcode_table[first] == {
+      case .NO_OP;
 
-      d := (first & 0b00000010) >> 1;
-      w := (first & 0b00000001);
+      case .MOV_RM2R;
+        mark := get_temporary_storage_mark();
+        defer set_temporary_storage_mark(mark);
 
-      mod := cast(Mov_Mode) ((runner[1] & 0b11000000) >> 6);
-      reg := (runner[1] & 0b00111000) >> 3;
-      r_m := (runner[1] & 0b00000111);
+        d := (first & 0b00000010) >> 1;
+        w := (first & 0b00000001);
 
-      if #complete mod == {
-        case .MEM_MODE_NO_DISP; #through;
-        case .MEM_MODE_8_DISP;  #through;
-        case .MEM_MODE_16_DISP;
+        mod := cast(Mov_Mode) ((runner[1] & 0b11000000) >> 6);
+        reg := (runner[1] & 0b00111000) >> 3;
+        r_m := (runner[1] & 0b00000111);
 
-          op_length := ifx mod == .MEM_MODE_8_DISP                    then 3 else
-                       ifx mod == .MEM_MODE_16_DISP                   then 4 else
-                       ifx (mod == .MEM_MODE_NO_DISP && r_m == 0b110) then 4 else
-                                                                           2;
+        if #complete mod == {
+          case .MEM_MODE_NO_DISP; #through;
+          case .MEM_MODE_8_DISP;  #through;
+          case .MEM_MODE_16_DISP;
 
-          consume_front(*runner, 2);
-          addr := consume_effective_address(*runner, mod = mod, r_m = r_m);
+            op_length := ifx mod == .MEM_MODE_8_DISP                    then 3 else
+                         ifx mod == .MEM_MODE_16_DISP                   then 4 else
+                         ifx (mod == .MEM_MODE_NO_DISP && r_m == 0b110) then 4 else
+                                                                             2;
 
-          if d {
-            print_to_builder(*builder, "mov %, %\n", reg_to_string[w][reg], addr);
-          }
-          else {
-            print_to_builder(*builder, "mov %, %\n", addr, reg_to_string[w][reg]);
-          }
+            consume_front(*runner, 2);
+            addr := consume_effective_address(*runner, mod = mod, r_m = r_m);
 
-        case .REG_MODE;
-          dest, src: u8;
-          consume_front(*runner, 2);
-          if d  dest, src = reg, r_m;
-          else  dest, src = r_m, reg;
-          print_to_builder(*builder, "mov %, %\n", reg_to_string[w][dest], reg_to_string[w][src]);
-      }
-    }
-    // Immediate to register/memory
-    else if (first & 0b11111110) == 0b1100011_0 {
-      w := (first & 0b00000001);
+            if d {
+              print_to_builder(*builder, "mov %, %\n", reg_to_string[w][reg], addr);
+            }
+            else {
+              print_to_builder(*builder, "mov %, %\n", addr, reg_to_string[w][reg]);
+            }
 
-      mod := cast(Mov_Mode) ((runner[1] & 0b11000000) >> 6);
-      r_m := (runner[1] & 0b00000111);
+          case .REG_MODE;
+            dest, src: u8;
+            consume_front(*runner, 2);
+            if d  dest, src = reg, r_m;
+            else  dest, src = r_m, reg;
+            print_to_builder(*builder, "mov %, %\n", reg_to_string[w][dest], reg_to_string[w][src]);
+        }
 
-      if #complete mod == {
-        case .MEM_MODE_NO_DISP; #through;
-        case .MEM_MODE_8_DISP;  #through;
-        case .MEM_MODE_16_DISP;
+      case .MOV_I2RM;
+        w := (first & 0b00000001);
 
-          op_length := (ifx mod == .MEM_MODE_8_DISP                    then 3 else
-                        ifx mod == .MEM_MODE_16_DISP                   then 4 else
-                        ifx (mod == .MEM_MODE_NO_DISP && r_m == 0b110) then 4 else
-                                                                            2) + 1 + w;
+        mod := cast(Mov_Mode) ((runner[1] & 0b11000000) >> 6);
+        r_m := (runner[1] & 0b00000111);
 
-          consume_front(*runner, 2);
-          addr := consume_effective_address(*runner, mod = mod, r_m = r_m);
+        if #complete mod == {
+          case .MEM_MODE_NO_DISP; #through;
+          case .MEM_MODE_8_DISP;  #through;
+          case .MEM_MODE_16_DISP;
 
-          value := get_integer_value(runner, word = xx w, signed = true);
-          consume_front(*runner, 1 + w);
-          print_to_builder(*builder, "mov %, % %\n", addr, data_size, value);
+            op_length := (ifx mod == .MEM_MODE_8_DISP                    then 3 else
+                          ifx mod == .MEM_MODE_16_DISP                   then 4 else
+                          ifx (mod == .MEM_MODE_NO_DISP && r_m == 0b110) then 4 else
+                                                                              2) + 1 + w;
 
-        case .REG_MODE;
-          value     := get_integer_value(slice_to_end(runner, 2), word = xx w, signed = true);
-          data_size := ifx w then "word" else "byte";
+            consume_front(*runner, 2);
+            addr := consume_effective_address(*runner, mod = mod, r_m = r_m);
 
-          consume_front(*runner, 3 + w);
+            value := get_integer_value(runner, word = xx w, signed = true);
+            consume_front(*runner, 1 + w);
+            print_to_builder(*builder, "mov %, % %\n", addr, data_size, value);
 
-          print_to_builder(*builder, "mov %, % %\n", reg_to_string[w][r_m], data_size, value);
-      }
-    }
-    // Immediate to register
-    else if (first & 0b11110000) == 0b1011_0000 {
-      w   := (first & 0b0001000) >> 3;
-      reg := (first & 0b0000111);
+          case .REG_MODE;
+            value     := get_integer_value(slice_to_end(runner, 2), word = xx w, signed = true);
+            data_size := ifx w then "word" else "byte";
 
-      value     := get_integer_value(slice_to_end(runner, 1), word = xx w, signed = true);
-      data_size := ifx w then "word" else "byte";
+            consume_front(*runner, 3 + w);
 
-      consume_front(*runner, 2 + w);
+            print_to_builder(*builder, "mov %, % %\n", reg_to_string[w][r_m], data_size, value);
+        }
 
-      print_to_builder(*builder, "mov %, % %\n", reg_to_string[w][reg], data_size, value);
-    }
-    // Memory to accumulator
-    else if (first & 0b11111110) == 0b1010000_0 {
-      w   := (first & 0b0000001);
+      case .MOV_I2R;
+        w   := (first & 0b0001000) >> 3;
+        reg := (first & 0b0000111);
 
-      value      := get_integer_value(slice_to_end(runner, 1), word = true, signed = false);
-      data_size  := ifx w then "word" else "byte";
-      reg        := ifx w then "al" else "ax";
-      num_digits := 5;
+        value     := get_integer_value(slice_to_end(runner, 1), word = xx w, signed = true);
+        data_size := ifx w then "word" else "byte";
 
-      consume_front(*runner, 3);
+        consume_front(*runner, 2 + w);
 
-      print_to_builder(*builder, "mov %, % [%h]\n", reg, data_size, FormatInt.{value = value, base = 16, minimum_digits = num_digits});
-    }
-    // Accumulator to memory
-    else if (first & 0b11111110) == 0b1010001_0 {
-      w   := (first & 0b0000001);
+        print_to_builder(*builder, "mov %, % %\n", reg_to_string[w][reg], data_size, value);
 
-      value      := get_integer_value(slice_to_end(runner, 1), word = true, signed = false);
-      data_size  := ifx w then "word" else "byte";
-      reg        := ifx w then "al" else "ax";
-      num_digits := 5;
+      case .MOV_M2A;
+        w   := (first & 0b0000001);
 
-      consume_front(*runner, 3);
+        value      := get_integer_value(slice_to_end(runner, 1), word = true, signed = false);
+        data_size  := ifx w then "word" else "byte";
+        reg        := ifx w then "al" else "ax";
+        num_digits := 5;
 
-      print_to_builder(*builder, "mov %, % [%h]\n", reg, data_size, FormatInt.{value = value, base = 16, minimum_digits = num_digits});
-    }
-    // Register/memory to segment register
-    else if (first & 0b11111111) == 0b10001110 {
+        consume_front(*runner, 3);
 
-    }
-    // Segment register to register/memory
-    else if (first & 0b11111111) == 0b10001100 {
+        print_to_builder(*builder, "mov %, % [%h]\n", reg, data_size, FormatInt.{value = value, base = 16, minimum_digits = num_digits});
+
+      case .MOV_A2M;
+        w   := (first & 0b0000001);
+
+        value      := get_integer_value(slice_to_end(runner, 1), word = true, signed = false);
+        data_size  := ifx w then "word" else "byte";
+        reg        := ifx w then "al" else "ax";
+        num_digits := 5;
+
+        consume_front(*runner, 3);
+
+        print_to_builder(*builder, "mov %, % [%h]\n", reg, data_size, FormatInt.{value = value, base = 16, minimum_digits = num_digits});
+
+      case .MOV_RM2S;
+
+      case .MOV_S2RM;
 
     }
   }
@@ -223,7 +264,7 @@ consume_effective_address :: (bytes: *[] u8, mod: Mov_Mode, r_m: u8) -> string {
   num_digits: int;
   add_or_sub: string;
 
-  word := mod == .MEM_MODE_16_DISP || direct;
+  word := mod == .MEM_MODE_NO_DISP || direct;
   data_size := ifx word then "word" else "byte";
 
   if mod != .MEM_MODE_NO_DISP || direct {
