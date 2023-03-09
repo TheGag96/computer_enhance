@@ -1,29 +1,19 @@
 #import "Basic";
 #import "File";
 
+reg_to_string : [2][] string : .[
+  /* w == 0 */ .["al", "cl", "dl", "bl", "ah", "ch", "dh", "bh"],
+  /* w == 1 */ .["ax", "cx", "dx", "bx", "sp", "bp", "si", "di"],
+];
+
+Mov_Mode :: enum u8 #specified {
+  MEM_MODE_NO_DISP :: 0b00;
+  MEM_MODE_8_DISP  :: 0b01;
+  MEM_MODE_16_DISP :: 0b10;
+  REG_MODE         :: 0b11;
+}
+
 disassemble :: (bytes: [] u8) -> string {
-  reg_to_string : [2][] string : .[
-    /* w == 0 */ .["al", "cl", "dl", "bl", "ah", "ch", "dh", "bh"],
-    /* w == 1 */ .["ax", "cx", "dx", "bx", "sp", "bp", "si", "di"],
-  ];
-
-  Mov_Mode :: enum u8 #specified {
-    mem_mode_no_disp :: 0b00;
-    mem_mode_8_disp  :: 0b01;
-    mem_mode_16_disp :: 0b10;
-    reg_mode         :: 0b11;
-  }
-
-  effective_addr_table : [8][3] string : .[
-    .["% [bx + si]", "% [bx + si % %h]", "% [bx + si % %h]"],
-    .["% [bx + di]", "% [bx + di % %h]", "% [bx + di % %h]"],
-    .["% [bp + si]", "% [bp + si % %h]", "% [bp + si % %h]"],
-    .["% [bp + di]", "% [bp + di % %h]", "% [bp + di % %h]"],
-    .["% [si]",      "% [si % %h]",      "% [si % %h]"     ],
-    .["% [di]",      "% [di % %h]",      "% [di % %h]"     ],
-    .["% [%3h]",     "% [bp % %h]",      "% [bp % %h]"     ],
-    .["% [bx]",      "% [bx % %h]",      "% [bx % %h]"     ],
-  ];
 
   builder: String_Builder;
 
@@ -49,31 +39,17 @@ disassemble :: (bytes: [] u8) -> string {
       r_m := (runner[1] & 0b00000111);
 
       if #complete mod == {
-        case .mem_mode_no_disp; #through;
-        case .mem_mode_8_disp;  #through;
-        case .mem_mode_16_disp;
+        case .MEM_MODE_NO_DISP; #through;
+        case .MEM_MODE_8_DISP;  #through;
+        case .MEM_MODE_16_DISP;
 
-          op_length := ifx mod == .mem_mode_8_disp                    then 3 else
-                       ifx mod == .mem_mode_16_disp                   then 4 else
-                       ifx (mod == .mem_mode_no_disp && r_m == 0b110) then 4 else
+          op_length := ifx mod == .MEM_MODE_8_DISP                    then 3 else
+                       ifx mod == .MEM_MODE_16_DISP                   then 4 else
+                       ifx (mod == .MEM_MODE_NO_DISP && r_m == 0b110) then 4 else
                                                                            2;
 
-          data_size := ifx w then "word" else "byte";
-
-          offset: int;
-          num_digits: int;
-          add_or_sub: string;
-
-          if op_length > 2 {
-            word := (op_length == 4);
-            offset = get_integer_value(slice_to_end(runner, 2), word = word, signed = !(mod == .mem_mode_no_disp && r_m == 0b110));
-            add_or_sub = ifx offset < 0 then "-" else "+";
-            num_digits = ifx word then 5 else 3;
-
-            if offset < 0  offset *= -1;
-          }
-
-          addr := tprint(effective_addr_table[r_m][mod], data_size, add_or_sub, FormatInt.{value = offset, base = 16, minimum_digits = num_digits});
+          consume_front(*runner, 2);
+          addr := consume_effective_address(*runner, mod = mod, r_m = r_m);
 
           if d {
             print_to_builder(*builder, "mov %, %\n", reg_to_string[w][reg], addr);
@@ -82,9 +58,7 @@ disassemble :: (bytes: [] u8) -> string {
             print_to_builder(*builder, "mov %, %\n", addr, reg_to_string[w][reg]);
           }
 
-          consume_front(*runner, op_length);
-
-        case .reg_mode;
+        case .REG_MODE;
           dest, src: u8;
           consume_front(*runner, 2);
           if d  dest, src = reg, r_m;
@@ -100,43 +74,23 @@ disassemble :: (bytes: [] u8) -> string {
       r_m := (runner[1] & 0b00000111);
 
       if #complete mod == {
-        case .mem_mode_no_disp; #through;
-        case .mem_mode_8_disp;  #through;
-        case .mem_mode_16_disp;
+        case .MEM_MODE_NO_DISP; #through;
+        case .MEM_MODE_8_DISP;  #through;
+        case .MEM_MODE_16_DISP;
 
-          op_length := (ifx mod == .mem_mode_8_disp                    then 3 else
-                        ifx mod == .mem_mode_16_disp                   then 4 else
-                        ifx (mod == .mem_mode_no_disp && r_m == 0b110) then 4 else
+          op_length := (ifx mod == .MEM_MODE_8_DISP                    then 3 else
+                        ifx mod == .MEM_MODE_16_DISP                   then 4 else
+                        ifx (mod == .MEM_MODE_NO_DISP && r_m == 0b110) then 4 else
                                                                             2) + 1 + w;
 
-          data_size := ifx w then "word" else "byte";
-
-          offset: int;
-          num_digits: int;
-          add_or_sub: string;
-
           consume_front(*runner, 2);
+          addr := consume_effective_address(*runner, mod = mod, r_m = r_m);
 
-          if mod != .mem_mode_no_disp || r_m == 0b110 {
-            word := mod == .mem_mode_16_disp || (mod == .mem_mode_no_disp && r_m == 0b110);
-            offset = get_integer_value(slice_to_end(runner, 2), word = word, signed = !(mod == .mem_mode_no_disp && r_m == 0b110));
-            add_or_sub = ifx offset < 0 then "-" else "+";
-            num_digits = ifx word then 5 else 3;
-
-            if offset < 0  offset *= -1;
-
-            consume_front(*runner, 1 + (cast(int)word));
-          }
-
-          addr := tprint(effective_addr_table[r_m][mod], data_size, add_or_sub, FormatInt.{value = offset, base = 16, minimum_digits = num_digits});
-
-          value     := get_integer_value(runner, word = xx w, signed = true);
-
+          value := get_integer_value(runner, word = xx w, signed = true);
           consume_front(*runner, 1 + w);
-
           print_to_builder(*builder, "mov %, % %\n", addr, data_size, value);
 
-        case .reg_mode;
+        case .REG_MODE;
           value     := get_integer_value(slice_to_end(runner, 2), word = xx w, signed = true);
           data_size := ifx w then "word" else "byte";
 
@@ -249,4 +203,38 @@ get_integer_value :: (arr: [] u8, word: bool, signed: bool) -> (int) {
   }
 
   return result;
+}
+
+consume_effective_address :: (bytes: *[] u8, mod: Mov_Mode, r_m: u8) -> string {
+  effective_addr_table : [8][3] string : .[
+    .["% [bx + si]", "% [bx + si % %h]", "% [bx + si % %h]"],
+    .["% [bx + di]", "% [bx + di % %h]", "% [bx + di % %h]"],
+    .["% [bp + si]", "% [bp + si % %h]", "% [bp + si % %h]"],
+    .["% [bp + di]", "% [bp + di % %h]", "% [bp + di % %h]"],
+    .["% [si]",      "% [si % %h]",      "% [si % %h]"     ],
+    .["% [di]",      "% [di % %h]",      "% [di % %h]"     ],
+    .["% [%3h]",     "% [bp % %h]",      "% [bp % %h]"     ],
+    .["% [bx]",      "% [bx % %h]",      "% [bx % %h]"     ],
+  ];
+
+  direct := mod == .MEM_MODE_NO_DISP && r_m == 0b110;
+
+  offset: int;
+  num_digits: int;
+  add_or_sub: string;
+
+  word := mod == .MEM_MODE_16_DISP || direct;
+  data_size := ifx word then "word" else "byte";
+
+  if mod != .MEM_MODE_NO_DISP || direct {
+    offset = get_integer_value(<<bytes, word = word, signed = !direct);
+    add_or_sub = ifx offset < 0 then "-" else "+";
+    num_digits = ifx word then 5 else 3;
+
+    if offset < 0  offset *= -1;
+
+    consume_front(bytes, 1 + (cast(int)word));
+  }
+
+  return tprint(effective_addr_table[r_m][mod], data_size, add_or_sub, FormatInt.{value = offset, base = 16, minimum_digits = num_digits});
 }
