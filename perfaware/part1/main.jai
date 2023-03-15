@@ -22,18 +22,33 @@ Opcode_Type :: enum u8 {
   MOV_A2M;   // Accumulator to memory
   MOV_RM2S;  // Register/memory to segment register
   MOV_S2RM;  // Segment register to register/memory
+  BIN_OP_R;  // Binary operation - register/memory and register to either
+  BIN_OP_I;  // Binary operation - immediate from register/memory
+  BIN_OP_A;  // Binary operation - immediate from accumulator
   // more to come...
 }
 
+Binary_Op :: enum u8 #specified {
+  ADD :: 0b000;
+  ADC :: 0b010;
+  SBB :: 0b011;
+  SUB :: 0b101;
+  CMP :: 0b111;
+}
+
+bin_op_to_string : [8] string : .[
+  "add", "op1", "adc", "op3", "sbb", "sub", "op6", "cmp"
+];
+
 opcode_table : [256] Opcode_Type : .[
   /* 0x00-0x0F */
-  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_A, .BIN_OP_A, .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
   /* 0x10-0x1F */
-  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_A, .BIN_OP_A, .NO_OP,    .NO_OP,    .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_A, .BIN_OP_A, .NO_OP,    .NO_OP,
   /* 0x20-0x2F */
-  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_A, .BIN_OP_A, .NO_OP,    .NO_OP,
   /* 0x30-0x3F */
-  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_A, .BIN_OP_A, .NO_OP,    .NO_OP,
   /* 0x40-0x4F */
   .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
   /* 0x50-0x5F */
@@ -43,7 +58,7 @@ opcode_table : [256] Opcode_Type : .[
   /* 0x70-0x7F */
   .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
   /* 0x80-0x8F */
-  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .MOV_RM2R, .MOV_RM2R, .MOV_RM2R, .MOV_RM2R, .MOV_S2RM, .NO_OP,    .MOV_RM2S, .NO_OP,
+  .BIN_OP_I, .BIN_OP_I, .BIN_OP_I, .BIN_OP_I, .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .MOV_RM2R, .MOV_RM2R, .MOV_RM2R, .MOV_RM2R, .MOV_S2RM, .NO_OP,    .MOV_RM2S, .NO_OP,
   /* 0x90-0x9F */
   .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
   /* 0xA0-0xAF */
@@ -97,7 +112,7 @@ disassemble :: (bytes: [] u8) -> string {
                                                                              2;
 
             consume_front(*runner, 2);
-            addr := consume_effective_address(*runner, mod = mod, r_m = r_m);
+            addr := consume_effective_address(*runner, mod = mod, r_m = r_m, word = xx w);
 
             if d {
               print_to_builder(*builder, "mov %, %\n", reg_to_string[w][reg], addr);
@@ -120,6 +135,8 @@ disassemble :: (bytes: [] u8) -> string {
         mod := cast(Mov_Mode) ((runner[1] & 0b11000000) >> 6);
         r_m := (runner[1] & 0b00000111);
 
+        data_size := ifx w then "word" else "byte";
+
         if #complete mod == {
           case .MEM_MODE_NO_DISP; #through;
           case .MEM_MODE_8_DISP;  #through;
@@ -131,7 +148,7 @@ disassemble :: (bytes: [] u8) -> string {
                                                                               2) + 1 + w;
 
             consume_front(*runner, 2);
-            addr := consume_effective_address(*runner, mod = mod, r_m = r_m);
+            addr := consume_effective_address(*runner, mod = mod, r_m = r_m, word = xx w);
 
             value := get_integer_value(runner, word = xx w, signed = true);
             consume_front(*runner, 1 + w);
@@ -139,7 +156,6 @@ disassemble :: (bytes: [] u8) -> string {
 
           case .REG_MODE;
             value     := get_integer_value(slice_to_end(runner, 2), word = xx w, signed = true);
-            data_size := ifx w then "word" else "byte";
 
             consume_front(*runner, 3 + w);
 
@@ -162,7 +178,7 @@ disassemble :: (bytes: [] u8) -> string {
 
         value      := get_integer_value(slice_to_end(runner, 1), word = true, signed = false);
         data_size  := ifx w then "word" else "byte";
-        reg        := ifx w then "al" else "ax";
+        reg        := ifx w then "ax" else "al";
         num_digits := 5;
 
         consume_front(*runner, 3);
@@ -174,7 +190,7 @@ disassemble :: (bytes: [] u8) -> string {
 
         value      := get_integer_value(slice_to_end(runner, 1), word = true, signed = false);
         data_size  := ifx w then "word" else "byte";
-        reg        := ifx w then "al" else "ax";
+        reg        := ifx w then "ax" else "al";
         num_digits := 5;
 
         consume_front(*runner, 3);
@@ -185,6 +201,98 @@ disassemble :: (bytes: [] u8) -> string {
 
       case .MOV_S2RM;
 
+      case .BIN_OP_R;
+        bin_op := cast(Binary_Op) ((first & 0b00111000) >> 3);
+        d      := (first & 0b0000010) >> 1;
+        w      := (first & 0b0000001);
+
+        mod := cast(Mov_Mode) ((runner[1] & 0b11000000) >> 6);
+        reg := (runner[1] & 0b00111000) >> 3;
+        r_m := (runner[1] & 0b00000111);
+
+        data_size := ifx w then "word" else "byte";
+
+        bin_op_string := bin_op_to_string[bin_op];
+
+        if #complete mod == {
+          case .MEM_MODE_NO_DISP; #through;
+          case .MEM_MODE_8_DISP;  #through;
+          case .MEM_MODE_16_DISP;
+
+            op_length := ifx mod == .MEM_MODE_8_DISP                    then 3 else
+                         ifx mod == .MEM_MODE_16_DISP                   then 4 else
+                         ifx (mod == .MEM_MODE_NO_DISP && r_m == 0b110) then 4 else
+                                                                             2;
+
+            consume_front(*runner, 2);
+            addr := consume_effective_address(*runner, mod = mod, r_m = r_m, word = xx w);
+
+            if d {
+              print_to_builder(*builder, "% %, %\n", bin_op_string, reg_to_string[w][reg], addr);
+            }
+            else {
+              print_to_builder(*builder, "% %, %\n", bin_op_string, addr, reg_to_string[w][reg]);
+            }
+
+          case .REG_MODE;
+            dest, src: u8;
+            consume_front(*runner, 2);
+            if d  dest, src = reg, r_m;
+            else  dest, src = r_m, reg;
+            print_to_builder(*builder, "% %, %\n", bin_op_string, reg_to_string[w][dest], reg_to_string[w][src]);
+        }
+
+      case .BIN_OP_I;
+        s      := (first & 0b0000010) >> 1;
+        w      := (first & 0b0000001);
+
+        mod    := cast(Mov_Mode)  ((runner[1] & 0b11000000) >> 6);
+        bin_op := cast(Binary_Op) ((runner[1] & 0b00111000) >> 3);
+        r_m    := (runner[1] & 0b00000111);
+
+        data_size     := ifx w then "word" else "byte";
+        bin_op_string := bin_op_to_string[bin_op];
+
+        imm_size := 1 + (cast(int) (s == 0 && w == 1));
+
+        if #complete mod == {
+          case .MEM_MODE_NO_DISP; #through;
+          case .MEM_MODE_8_DISP;  #through;
+          case .MEM_MODE_16_DISP;
+
+            op_length := (ifx mod == .MEM_MODE_8_DISP                    then 3 else
+                          ifx mod == .MEM_MODE_16_DISP                   then 4 else
+                          ifx (mod == .MEM_MODE_NO_DISP && r_m == 0b110) then 4 else
+                                                                              2) + imm_size;
+
+            consume_front(*runner, 2);
+            addr := consume_effective_address(*runner, mod = mod, r_m = r_m, word = xx w);
+
+            value := get_integer_value(runner, word = imm_size == 2, signed = xx s);
+            consume_front(*runner, imm_size);
+            print_to_builder(*builder, "% %, % %\n", bin_op_string, addr, data_size, value);
+
+          case .REG_MODE;
+            value     := get_integer_value(slice_to_end(runner, 2), word = imm_size == 2, signed = xx s);
+
+            consume_front(*runner, 2 + imm_size);
+
+            print_to_builder(*builder, "% %, % %\n", bin_op_string, reg_to_string[w][r_m], data_size, value);
+        }
+
+      case .BIN_OP_A;
+        bin_op := cast(Binary_Op) ((first & 0b00111000) >> 3);
+        w      := (first & 0b0000001);
+        reg    := ifx w then "ax" else "al";
+
+        bin_op_string := bin_op_to_string[bin_op];
+
+        value     := get_integer_value(slice_to_end(runner, 1), word = xx w, signed = true);
+        data_size := ifx w then "word" else "byte";
+
+        consume_front(*runner, 2 + w);
+
+        print_to_builder(*builder, "% %, % %\n", bin_op_string, reg, data_size, value);
     }
   }
 
@@ -246,7 +354,7 @@ get_integer_value :: (arr: [] u8, word: bool, signed: bool) -> (int) {
   return result;
 }
 
-consume_effective_address :: (bytes: *[] u8, mod: Mov_Mode, r_m: u8) -> string {
+consume_effective_address :: (bytes: *[] u8, mod: Mov_Mode, r_m: u8, word: bool) -> string {
   effective_addr_table : [8][3] string : .[
     .["% [bx + si]", "% [bx + si % %h]", "% [bx + si % %h]"],
     .["% [bx + di]", "% [bx + di % %h]", "% [bx + di % %h]"],
@@ -264,17 +372,17 @@ consume_effective_address :: (bytes: *[] u8, mod: Mov_Mode, r_m: u8) -> string {
   num_digits: int;
   add_or_sub: string;
 
-  word := mod == .MEM_MODE_NO_DISP || direct;
+  disp_16 := mod == .MEM_MODE_16_DISP || direct;
   data_size := ifx word then "word" else "byte";
 
   if mod != .MEM_MODE_NO_DISP || direct {
-    offset = get_integer_value(<<bytes, word = word, signed = !direct);
+    offset = get_integer_value(<<bytes, word = disp_16, signed = !direct);
     add_or_sub = ifx offset < 0 then "-" else "+";
-    num_digits = ifx word then 5 else 3;
+    num_digits = ifx disp_16 then 5 else 3;
 
     if offset < 0  offset *= -1;
 
-    consume_front(bytes, 1 + (cast(int)word));
+    consume_front(bytes, 1 + (cast(int)disp_16));
   }
 
   return tprint(effective_addr_table[r_m][mod], data_size, add_or_sub, FormatInt.{value = offset, base = 16, minimum_digits = num_digits});
