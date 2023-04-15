@@ -18,11 +18,11 @@ emulate :: (bytes: [] u8) {
   running := true;
   while running {
     temp := tail(emulator.ram, emulator.ip);
-    disassemble_one(*temp);
+    decode(disassemble_one, *temp, temp[0], temp[1]);
 
     last_ip := emulator.ip;
 
-    step_one(emulator);
+    decode(step_one, emulator, emulator.ram[emulator.ip], emulator.ram[emulator.ip+1]);
 
     print(
       "ax = %, bx = %, cx = %, dx = %, sp = %, ip = %\n",
@@ -50,20 +50,13 @@ emulate :: (bytes: [] u8) {
   }
 }
 
-step_one :: (using emulator: *Emulator) {
-  first := ram[ip];
+step_one :: (info: DecodeInfo, using emulator: *Emulator) {
+  using info;
 
-  if #complete opcode_table[first] == {
+  if #complete info.op == {
     case .NO_OP;
 
     case .MOV_RM2R;
-      d := ((first & 0b00000010) >> 1) != 0;
-      w := (first & 0b00000001) != 0;
-
-      mod := cast(Mov_Mode) ((ram[ip+1] & 0b11000000) >> 6);
-      reg := (ram[ip+1] & 0b00111000) >> 3;
-      r_m := (ram[ip+1] & 0b00000111);
-
       ip += 2;
       ip_shift, ea_loc := eval_effective_address_or_reg(emulator, ip, mod, r_m, word = w);
       reg_loc := eval_reg(emulator, reg, w = w);
@@ -77,11 +70,6 @@ step_one :: (using emulator: *Emulator) {
       }
 
     case .MOV_I2RM;
-      w := (first & 0b00000001) != 0;
-
-      mod := cast(Mov_Mode) ((ram[ip+1] & 0b11000000) >> 6);
-      r_m := (ram[ip+1] & 0b00000111);
-
       ip += 2;
       ip_shift, ea_loc := eval_effective_address_or_reg(emulator, ip, mod, r_m, word = w);
       ip += ip_shift;
@@ -89,24 +77,17 @@ step_one :: (using emulator: *Emulator) {
       ip += 1 + (cast(u16)w);
 
     case .MOV_I2R;
-      w   := ((first & 0b0001000) >> 3) != 0;
-      reg := (first & 0b0000111);
-
       ip += 1;
       write_to_location(eval_reg(emulator, reg, w), cast(u16) read_immediate(emulator, word = w, signed = false));
       ip += 1 + (cast(u16)w);
 
     case .MOV_M2A;
-      w   := (first & 0b0000001) != 0;
-
       ip += 1;
       ram_loc := array_view(ram, read_immediate(emulator, word = w, signed = false), 1 + cast(u16)w);
       ip += 1 + (cast(u16)w);
       write_to_location(eval_reg(emulator, 0 /* .AX */, w), ram_loc);
 
     case .MOV_A2M;
-      w   := (first & 0b0000001) != 0;
-
       ip += 1;
       ram_loc := array_view(ram, read_immediate(emulator, word = w, signed = false), 1 + cast(u16)w);
       ip += 1 + cast(u16)w;
@@ -117,14 +98,6 @@ step_one :: (using emulator: *Emulator) {
     case .MOV_S2RM;
 
     case .BIN_OP_R;
-      bin_op := cast(Binary_Op) ((first & 0b00111000) >> 3);
-      d      := ((first & 0b0000010) >> 1) != 0;
-      w      := (first & 0b0000001) != 0;
-
-      mod := cast(Mov_Mode) ((ram[ip+1] & 0b11000000) >> 6);
-      reg := (ram[ip+1] & 0b00111000) >> 3;
-      r_m := (ram[ip+1] & 0b00000111);
-
       ip += 2;
       ip_shift, ea_loc := eval_effective_address_or_reg(emulator, ip, mod = mod, r_m = r_m, word = w);
       ip += ip_shift;
@@ -138,13 +111,6 @@ step_one :: (using emulator: *Emulator) {
       }
 
     case .BIN_OP_I;
-      s      := ((first & 0b0000010) >> 1) != 0;
-      w      := (first & 0b0000001) != 0;
-
-      mod    := cast(Mov_Mode)  ((ram[ip+1] & 0b11000000) >> 6);
-      bin_op := cast(Binary_Op) ((ram[ip+1] & 0b00111000) >> 3);
-      r_m    := (ram[ip+1] & 0b00000111);
-
       imm_size := 1 + (cast(u16) (!s && w));
 
       ip += 2;
@@ -156,10 +122,6 @@ step_one :: (using emulator: *Emulator) {
       apply_op(bin_op, ea_loc, imm);
 
     case .BIN_OP_A;
-      bin_op := cast(Binary_Op) ((first & 0b00111000) >> 3);
-      w      := (first & 0b0000001) != 0;
-      reg    := ifx w then "ax" else "al";
-
       ip += 1;
       reg_loc := eval_reg(emulator, 0 /* .AX */, w);
       imm := read_immediate(emulator, word = w, signed = false);

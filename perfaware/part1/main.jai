@@ -93,6 +93,72 @@ opcode_table : [256] Opcode_Type : .[
   .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
 ];
 
+DecodeInfo :: struct {
+  op: Opcode_Type;
+  w, d, s: bool;
+  mod: Mov_Mode;
+  reg: u8;
+  r_m: u8;
+  bin_op: Binary_Op;
+}
+
+decode :: ($func: #type (DecodeInfo, *$T), object: *T, first: u8, second: u8) {
+  info: DecodeInfo;
+  info.op = opcode_table[first];
+
+  if #complete info.op == {
+    case .NO_OP;
+
+    case .MOV_RM2R;
+      info.d = ((first & 0b00000010) >> 1) != 0;
+      info.w = (first & 0b00000001) != 0;
+
+      info.mod = cast(Mov_Mode) ((second & 0b11000000) >> 6);
+      info.reg = (second & 0b00111000) >> 3;
+      info.r_m = (second & 0b00000111);
+
+    case .MOV_I2RM;
+      info.w = (first & 0b00000001) != 0;
+
+      info.mod = cast(Mov_Mode) ((second & 0b11000000) >> 6);
+      info.r_m = (second & 0b00000111);
+
+    case .MOV_I2R;
+      info.w   = ((first & 0b0001000) >> 3) != 0;
+      info.reg = (first & 0b0000111);
+
+    case .MOV_M2A;
+      info.w   = (first & 0b0000001) != 0;
+
+    case .MOV_A2M;
+      info.w   = (first & 0b0000001) != 0;
+
+    case .MOV_RM2S;
+
+    case .MOV_S2RM;
+
+    case .BIN_OP_R;
+      info.bin_op = cast(Binary_Op) ((first & 0b00111000) >> 3);
+      info.d      = ((first & 0b0000010) >> 1) != 0;
+      info.w      = (first & 0b0000001) != 0;
+
+      info.mod = cast(Mov_Mode) ((second & 0b11000000) >> 6);
+      info.reg = (second & 0b00111000) >> 3;
+      info.r_m = (second & 0b00000111);
+
+    case .BIN_OP_I;
+      info.s      = ((first & 0b0000010) >> 1) != 0;
+      info.w      = (first & 0b0000001) != 0;
+
+    case .BIN_OP_A;
+      info.bin_op = cast(Binary_Op) ((first & 0b00111000) >> 3);
+      info.w      = (first & 0b0000001) != 0;
+      info.reg    = 0 /* ax / al */;
+  }
+
+  func(info, object);
+}
+
 disassemble :: (bytes: [] u8) {
   log("bits 16\n");
 
@@ -103,7 +169,7 @@ disassemble :: (bytes: [] u8) {
     defer set_temporary_storage_mark(mark);
 
     temp := runner;
-    disassemble_one(*runner);
+    decode(disassemble_one, *runner, runner[0], runner[1]);
     if runner.data == temp.data {
       log("Bingus");
       break;
@@ -111,30 +177,18 @@ disassemble :: (bytes: [] u8) {
   }
 }
 
-disassemble_one :: (runner: *[] u8) {
-  first := (<<runner)[0];
+disassemble_one :: (info: DecodeInfo, runner: *[] u8) {
+  using info;
 
-  if #complete opcode_table[first] == {
+  if #complete info.op == {
     case .NO_OP;
 
     case .MOV_RM2R;
-      d := ((first & 0b00000010) >> 1) != 0;
-      w := (first & 0b00000001) != 0;
-
-      mod := cast(Mov_Mode) (((<<runner)[1] & 0b11000000) >> 6);
-      reg := ((<<runner)[1] & 0b00111000) >> 3;
-      r_m := ((<<runner)[1] & 0b00000111);
-
       consume_front(runner, 2);
 
       print_op("mov", effective_address_or_reg(runner, mod = mod, r_m = r_m, word = w), reg_string(reg, w), swap_args = d);
 
     case .MOV_I2RM;
-      w := (first & 0b00000001) != 0;
-
-      mod := cast(Mov_Mode) (((<<runner)[1] & 0b11000000) >> 6);
-      r_m := ((<<runner)[1] & 0b00000111);
-
       consume_front(runner, 2);
 
       print_op(
@@ -143,15 +197,10 @@ disassemble_one :: (runner: *[] u8) {
       );
 
     case .MOV_I2R;
-      w   := ((first & 0b0001000) >> 3) != 0;
-      reg := (first & 0b0000111);
-
       consume_front(runner, 1);
       print_op("mov", reg_string(reg, w), print_immediate(runner, w, signed = true, hex = false, size = true));
 
     case .MOV_M2A;
-      w   := (first & 0b0000001) != 0;
-
       consume_front(runner, 1);
 
       second_arg := tprint(
@@ -161,8 +210,6 @@ disassemble_one :: (runner: *[] u8) {
       print_op("mov", ifx w then "ax" else "al", second_arg);
 
     case .MOV_A2M;
-      w   := (first & 0b0000001) != 0;
-
       consume_front(runner, 1);
 
       first_arg := tprint(
@@ -176,25 +223,10 @@ disassemble_one :: (runner: *[] u8) {
     case .MOV_S2RM;
 
     case .BIN_OP_R;
-      bin_op := cast(Binary_Op) ((first & 0b00111000) >> 3);
-      d      := ((first & 0b0000010) >> 1) != 0;
-      w      := (first & 0b0000001) != 0;
-
-      mod := cast(Mov_Mode) (((<<runner)[1] & 0b11000000) >> 6);
-      reg := ((<<runner)[1] & 0b00111000) >> 3;
-      r_m := ((<<runner)[1] & 0b00000111);
-
       consume_front(runner, 2);
       print_op(bin_op_to_string[bin_op], effective_address_or_reg(runner, mod = mod, r_m = r_m, word = w), reg_string(reg, w), swap_args = d);
 
     case .BIN_OP_I;
-      s      := ((first & 0b0000010) >> 1) != 0;
-      w      := (first & 0b0000001) != 0;
-
-      mod    := cast(Mov_Mode)  (((<<runner)[1] & 0b11000000) >> 6);
-      bin_op := cast(Binary_Op) (((<<runner)[1] & 0b00111000) >> 3);
-      r_m    := ((<<runner)[1] & 0b00000111);
-
       imm_size := 1 + (cast(int) (!s && w));
 
       consume_front(runner, 2);
@@ -204,10 +236,6 @@ disassemble_one :: (runner: *[] u8) {
       );
 
     case .BIN_OP_A;
-      bin_op := cast(Binary_Op) ((first & 0b00111000) >> 3);
-      w      := (first & 0b0000001) != 0;
-      reg    := ifx w then "ax" else "al";
-
       consume_front(runner, 1);
       print_op(
         bin_op_to_string[bin_op], ifx w then "ax" else "al",
