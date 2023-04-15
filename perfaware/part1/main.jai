@@ -1,17 +1,22 @@
 #import "Basic";
 #import "File";
 
+#load "emulate.jai";
+
 main :: () {
   args := get_command_line_arguments();
 
-  if args.count != 2 {
-    print("Please pass one argument for the path to the file to disassemble\n");
+  if args.count != 3 || (args[1] != "disassemble" && args[1] != "emulate") {
+    print("Please pass in 'disassemble' or 'emulate', then one argument for the path to the file on which to perform that operation.\n");
     return;
   }
 
-  disassemble(xx read_entire_file(args[1]));
-
-  return;
+  if args[1] == "disassemble" {
+    disassemble(xx read_entire_file(args[2]));
+  }
+  else {
+    emulate(xx read_entire_file(args[2]));
+  }
 }
 
 reg_to_string : [2][] string : .[
@@ -97,106 +102,117 @@ disassemble :: (bytes: [] u8) {
     mark := get_temporary_storage_mark();
     defer set_temporary_storage_mark(mark);
 
-    first := runner[0];
-
-    if #complete opcode_table[first] == {
-      case .NO_OP;
-
-      case .MOV_RM2R;
-        d := ((first & 0b00000010) >> 1) != 0;
-        w := (first & 0b00000001) != 0;
-
-        mod := cast(Mov_Mode) ((runner[1] & 0b11000000) >> 6);
-        reg := (runner[1] & 0b00111000) >> 3;
-        r_m := (runner[1] & 0b00000111);
-
-        consume_front(*runner, 2);
-
-        print_op("mov", effective_address_or_reg(*runner, mod = mod, r_m = r_m, word = w), reg_string(reg, w), swap_args = d);
-
-      case .MOV_I2RM;
-        w := (first & 0b00000001) != 0;
-
-        mod := cast(Mov_Mode) ((runner[1] & 0b11000000) >> 6);
-        r_m := (runner[1] & 0b00000111);
-
-        consume_front(*runner, 2);
-
-        print_op(
-          "mov", effective_address_or_reg(*runner, mod = mod, r_m = r_m, word = w),
-          print_immediate(*runner, w, signed = true, hex = false, size = true)
-        );
-
-      case .MOV_I2R;
-        w   := ((first & 0b0001000) >> 3) != 0;
-        reg := (first & 0b0000111);
-
-        consume_front(*runner, 1);
-        print_op("mov", reg_string(reg, w), print_immediate(*runner, w, signed = true, hex = false, size = true));
-
-      case .MOV_M2A;
-        w   := (first & 0b0000001) != 0;
-
-        consume_front(*runner, 1);
-
-        second_arg := tprint(
-          "% [%]", ifx w then "word" else "byte",
-          print_immediate(*runner, w = w, signed = false, hex = false, size = false)
-        );
-        print_op("mov", ifx w then "ax" else "al", second_arg);
-
-      case .MOV_A2M;
-        w   := (first & 0b0000001) != 0;
-
-        consume_front(*runner, 1);
-
-        first_arg := tprint(
-          "% [%]", ifx w then "word" else "byte",
-          print_immediate(*runner, w = w, signed = false, hex = false, size = false)
-        );
-        print_op("mov", first_arg, ifx w then "ax" else "al");
-
-      case .MOV_RM2S;
-
-      case .MOV_S2RM;
-
-      case .BIN_OP_R;
-        bin_op := cast(Binary_Op) ((first & 0b00111000) >> 3);
-        d      := ((first & 0b0000010) >> 1) != 0;
-        w      := (first & 0b0000001) != 0;
-
-        mod := cast(Mov_Mode) ((runner[1] & 0b11000000) >> 6);
-        reg := (runner[1] & 0b00111000) >> 3;
-        r_m := (runner[1] & 0b00000111);
-
-        consume_front(*runner, 2);
-        print_op(bin_op_to_string[bin_op], effective_address_or_reg(*runner, mod = mod, r_m = r_m, word = w), reg_string(reg, w), swap_args = d);
-
-      case .BIN_OP_I;
-        s      := ((first & 0b0000010) >> 1) != 0;
-        w      := (first & 0b0000001) != 0;
-
-        mod    := cast(Mov_Mode)  ((runner[1] & 0b11000000) >> 6);
-        bin_op := cast(Binary_Op) ((runner[1] & 0b00111000) >> 3);
-        r_m    := (runner[1] & 0b00000111);
-
-        imm_size := 1 + (cast(int) (!s && w));
-
-        consume_front(*runner, 2);
-        second_arg := print_immediate(*runner, w = imm_size == 2, signed = s, hex = false, size = true);
-        print_op(bin_op_to_string[bin_op], effective_address_or_reg(*runner, mod = mod, r_m = r_m, word = w), second_arg);
-
-      case .BIN_OP_A;
-        bin_op := cast(Binary_Op) ((first & 0b00111000) >> 3);
-        w      := (first & 0b0000001) != 0;
-        reg    := ifx w then "ax" else "al";
-
-        consume_front(*runner, 1);
-        print_op(
-          bin_op_to_string[bin_op], ifx w then "ax" else "al",
-          print_immediate(*runner, w = w, signed = true, hex = false, size = true)
-        );
+    temp := runner;
+    disassemble_one(*runner);
+    if runner.data == temp.data {
+      log("Bingus");
+      break;
     }
+  }
+}
+
+disassemble_one :: (runner: *[] u8) {
+  first := (<<runner)[0];
+
+  if #complete opcode_table[first] == {
+    case .NO_OP;
+
+    case .MOV_RM2R;
+      d := ((first & 0b00000010) >> 1) != 0;
+      w := (first & 0b00000001) != 0;
+
+      mod := cast(Mov_Mode) (((<<runner)[1] & 0b11000000) >> 6);
+      reg := ((<<runner)[1] & 0b00111000) >> 3;
+      r_m := ((<<runner)[1] & 0b00000111);
+
+      consume_front(runner, 2);
+
+      print_op("mov", effective_address_or_reg(runner, mod = mod, r_m = r_m, word = w), reg_string(reg, w), swap_args = d);
+
+    case .MOV_I2RM;
+      w := (first & 0b00000001) != 0;
+
+      mod := cast(Mov_Mode) (((<<runner)[1] & 0b11000000) >> 6);
+      r_m := ((<<runner)[1] & 0b00000111);
+
+      consume_front(runner, 2);
+
+      print_op(
+        "mov", effective_address_or_reg(runner, mod = mod, r_m = r_m, word = w),
+        print_immediate(runner, w, signed = true, hex = false, size = true)
+      );
+
+    case .MOV_I2R;
+      w   := ((first & 0b0001000) >> 3) != 0;
+      reg := (first & 0b0000111);
+
+      consume_front(runner, 1);
+      print_op("mov", reg_string(reg, w), print_immediate(runner, w, signed = true, hex = false, size = true));
+
+    case .MOV_M2A;
+      w   := (first & 0b0000001) != 0;
+
+      consume_front(runner, 1);
+
+      second_arg := tprint(
+        "% [%]", ifx w then "word" else "byte",
+        print_immediate(runner, w = w, signed = false, hex = false, size = false)
+      );
+      print_op("mov", ifx w then "ax" else "al", second_arg);
+
+    case .MOV_A2M;
+      w   := (first & 0b0000001) != 0;
+
+      consume_front(runner, 1);
+
+      first_arg := tprint(
+        "% [%]", ifx w then "word" else "byte",
+        print_immediate(runner, w = w, signed = false, hex = false, size = false)
+      );
+      print_op("mov", first_arg, ifx w then "ax" else "al");
+
+    case .MOV_RM2S;
+
+    case .MOV_S2RM;
+
+    case .BIN_OP_R;
+      bin_op := cast(Binary_Op) ((first & 0b00111000) >> 3);
+      d      := ((first & 0b0000010) >> 1) != 0;
+      w      := (first & 0b0000001) != 0;
+
+      mod := cast(Mov_Mode) (((<<runner)[1] & 0b11000000) >> 6);
+      reg := ((<<runner)[1] & 0b00111000) >> 3;
+      r_m := ((<<runner)[1] & 0b00000111);
+
+      consume_front(runner, 2);
+      print_op(bin_op_to_string[bin_op], effective_address_or_reg(runner, mod = mod, r_m = r_m, word = w), reg_string(reg, w), swap_args = d);
+
+    case .BIN_OP_I;
+      s      := ((first & 0b0000010) >> 1) != 0;
+      w      := (first & 0b0000001) != 0;
+
+      mod    := cast(Mov_Mode)  (((<<runner)[1] & 0b11000000) >> 6);
+      bin_op := cast(Binary_Op) (((<<runner)[1] & 0b00111000) >> 3);
+      r_m    := ((<<runner)[1] & 0b00000111);
+
+      imm_size := 1 + (cast(int) (!s && w));
+
+      consume_front(runner, 2);
+      print_op(
+        bin_op_to_string[bin_op], effective_address_or_reg(runner, mod = mod, r_m = r_m, word = w),
+        print_immediate(runner, w = imm_size == 2, signed = s, hex = false, size = true)
+      );
+
+    case .BIN_OP_A;
+      bin_op := cast(Binary_Op) ((first & 0b00111000) >> 3);
+      w      := (first & 0b0000001) != 0;
+      reg    := ifx w then "ax" else "al";
+
+      consume_front(runner, 1);
+      print_op(
+        bin_op_to_string[bin_op], ifx w then "ax" else "al",
+        print_immediate(runner, w = w, signed = true, hex = false, size = true)
+      );
   }
 }
 
@@ -209,16 +225,6 @@ consume_front :: inline (arr: * $T, skip: s64) -> T {
 
   arr.data  += skip;
   arr.count -= skip;
-
-  return result;
-}
-
-slice_to_end :: inline (arr: $T, skip: s64) -> T {
-  result: T = ---;
-
-  assert(skip >= 0 && skip <= arr.count);
-  result.data  = arr.data  + skip;
-  result.count = arr.count - skip;
 
   return result;
 }
