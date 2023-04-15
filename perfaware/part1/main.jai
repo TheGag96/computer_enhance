@@ -1,6 +1,19 @@
 #import "Basic";
 #import "File";
 
+main :: () {
+  args := get_command_line_arguments();
+
+  if args.count != 2 {
+    print("Please pass one argument for the path to the file to disassemble\n");
+    return;
+  }
+
+  disassemble(xx read_entire_file(args[1]));
+
+  return;
+}
+
 reg_to_string : [2][] string : .[
   /* w == 0 */ .["al", "cl", "dl", "bl", "ah", "ch", "dh", "bh"],
   /* w == 1 */ .["ax", "cx", "dx", "bx", "sp", "bp", "si", "di"],
@@ -76,60 +89,30 @@ opcode_table : [256] Opcode_Type : .[
 ];
 
 disassemble :: (bytes: [] u8) {
-  builder: String_Builder;
-
-  print("bits 16\n");
+  log("bits 16\n");
 
   runner := bytes;
 
   while runner.count {
+    mark := get_temporary_storage_mark();
+    defer set_temporary_storage_mark(mark);
+
     first := runner[0];
 
     if #complete opcode_table[first] == {
       case .NO_OP;
 
       case .MOV_RM2R;
-        d := (first & 0b00000010) >> 1;
+        d := ((first & 0b00000010) >> 1) != 0;
         w := (first & 0b00000001) != 0;
 
         mod := cast(Mov_Mode) ((runner[1] & 0b11000000) >> 6);
         reg := (runner[1] & 0b00111000) >> 3;
         r_m := (runner[1] & 0b00000111);
 
-        if #complete mod == {
-          case .MEM_MODE_NO_DISP; #through;
-          case .MEM_MODE_8_DISP;  #through;
-          case .MEM_MODE_16_DISP;
+        consume_front(*runner, 2);
 
-            print("mov ");
-
-            consume_front(*runner, 2);
-
-            if d {
-              print_reg(reg, w);
-              print(", ");
-              print_effective_address(*runner, mod = mod, r_m = r_m, word = w);
-            }
-            else {
-              print_effective_address(*runner, mod = mod, r_m = r_m, word = w);
-              print(", ");
-              print_reg(reg, w);
-            }
-
-            print("\n");
-
-          case .REG_MODE;
-            dest, src: u8;
-            if d  dest, src = reg, r_m;
-            else  dest, src = r_m, reg;
-
-            print("mov ");
-            print_reg(dest, w);
-            print(", ");
-            print_reg(src, w);
-            print("\n");
-            consume_front(*runner, 2);
-        }
+        print_op("mov", effective_address_or_reg(*runner, mod = mod, r_m = r_m, word = w), reg_string(reg, w), swap_args = d);
 
       case .MOV_I2RM;
         w := (first & 0b00000001) != 0;
@@ -137,64 +120,41 @@ disassemble :: (bytes: [] u8) {
         mod := cast(Mov_Mode) ((runner[1] & 0b11000000) >> 6);
         r_m := (runner[1] & 0b00000111);
 
-        data_size := ifx w then "word" else "byte";
+        consume_front(*runner, 2);
 
-        if #complete mod == {
-          case .MEM_MODE_NO_DISP; #through;
-          case .MEM_MODE_8_DISP;  #through;
-          case .MEM_MODE_16_DISP;
-
-            print("mov ");
-
-            consume_front(*runner, 2);
-            print_effective_address(*runner, mod = mod, r_m = r_m, word = w);
-            print(", ");
-            print_immediate(*runner, w, signed = true, hex = false, size = true);
-            print("\n");
-
-          case .REG_MODE;
-            print("mov ");
-            print_reg(r_m, w);
-            print(", ");
-            consume_front(*runner, 2);
-            print_immediate(*runner, w, signed = true, hex = false, size = true);
-            print("\n");
-        }
+        print_op(
+          "mov", effective_address_or_reg(*runner, mod = mod, r_m = r_m, word = w),
+          print_immediate(*runner, w, signed = true, hex = false, size = true)
+        );
 
       case .MOV_I2R;
         w   := ((first & 0b0001000) >> 3) != 0;
         reg := (first & 0b0000111);
 
         consume_front(*runner, 1);
-        print("mov ");
-        print_reg(reg, w);
-        print(", ");
-        print_immediate(*runner, w, signed = true, hex = false, size = true);
-        print("\n");
+        print_op("mov", reg_string(reg, w), print_immediate(*runner, w, signed = true, hex = false, size = true));
 
       case .MOV_M2A;
         w   := (first & 0b0000001) != 0;
 
         consume_front(*runner, 1);
-        print("mov ");
-        print(ifx w then "ax" else "al");
-        print(", ");
-        print("% [", ifx w then "word" else "byte");
-        print_immediate(*runner, w = w, signed = false, hex = false, size = false);
-        print("]");
-        print("\n");
+
+        second_arg := tprint(
+          "% [%]", ifx w then "word" else "byte",
+          print_immediate(*runner, w = w, signed = false, hex = false, size = false)
+        );
+        print_op("mov", ifx w then "ax" else "al", second_arg);
 
       case .MOV_A2M;
         w   := (first & 0b0000001) != 0;
 
         consume_front(*runner, 1);
-        print("mov ");
-        print("% [", ifx w then "word" else "byte");
-        print_immediate(*runner, w = w, signed = false, hex = false, size = false);
-        print("]");
-        print(", ");
-        print(ifx w then "ax" else "al");
-        print("\n");
+
+        first_arg := tprint(
+          "% [%]", ifx w then "word" else "byte",
+          print_immediate(*runner, w = w, signed = false, hex = false, size = false)
+        );
+        print_op("mov", first_arg, ifx w then "ax" else "al");
 
       case .MOV_RM2S;
 
@@ -202,7 +162,7 @@ disassemble :: (bytes: [] u8) {
 
       case .BIN_OP_R;
         bin_op := cast(Binary_Op) ((first & 0b00111000) >> 3);
-        d      := (first & 0b0000010) >> 1;
+        d      := ((first & 0b0000010) >> 1) != 0;
         w      := (first & 0b0000001) != 0;
 
         mod := cast(Mov_Mode) ((runner[1] & 0b11000000) >> 6);
@@ -210,34 +170,7 @@ disassemble :: (bytes: [] u8) {
         r_m := (runner[1] & 0b00000111);
 
         consume_front(*runner, 2);
-        print(bin_op_to_string[bin_op]);
-        print(" ");
-
-        if #complete mod == {
-          case .MEM_MODE_NO_DISP; #through;
-          case .MEM_MODE_8_DISP;  #through;
-          case .MEM_MODE_16_DISP;
-            if d {
-              print_reg(reg, w);
-              print(", ");
-              print_effective_address(*runner, mod = mod, r_m = r_m, word = w);
-            }
-            else {
-              print_effective_address(*runner, mod = mod, r_m = r_m, word = w);
-              print(", ");
-              print_reg(reg, w);
-            }
-
-          case .REG_MODE;
-            dest, src: u8;
-            if d  dest, src = reg, r_m;
-            else  dest, src = r_m, reg;
-            print_reg(dest, w);
-            print(", ");
-            print_reg(src, w);
-        }
-
-        print("\n");
+        print_op(bin_op_to_string[bin_op], effective_address_or_reg(*runner, mod = mod, r_m = r_m, word = w), reg_string(reg, w), swap_args = d);
 
       case .BIN_OP_I;
         s      := ((first & 0b0000010) >> 1) != 0;
@@ -250,22 +183,8 @@ disassemble :: (bytes: [] u8) {
         imm_size := 1 + (cast(int) (!s && w));
 
         consume_front(*runner, 2);
-        print(bin_op_to_string[bin_op]);
-        print(" ");
-
-        if #complete mod == {
-          case .MEM_MODE_NO_DISP; #through;
-          case .MEM_MODE_8_DISP;  #through;
-          case .MEM_MODE_16_DISP;
-            print_effective_address(*runner, mod = mod, r_m = r_m, word = w);
-
-          case .REG_MODE;
-            print_reg(r_m, w);
-        }
-
-        print(", ");
-        print_immediate(*runner, w = imm_size == 2, signed = s, hex = false, size = true);
-        print("\n");
+        second_arg := print_immediate(*runner, w = imm_size == 2, signed = s, hex = false, size = true);
+        print_op(bin_op_to_string[bin_op], effective_address_or_reg(*runner, mod = mod, r_m = r_m, word = w), second_arg);
 
       case .BIN_OP_A;
         bin_op := cast(Binary_Op) ((first & 0b00111000) >> 3);
@@ -273,12 +192,10 @@ disassemble :: (bytes: [] u8) {
         reg    := ifx w then "ax" else "al";
 
         consume_front(*runner, 1);
-        print(bin_op_to_string[bin_op]);
-        print(" ");
-        print(ifx w then "ax" else "al");
-        print(", ");
-        print_immediate(*runner, w = w, signed = true, hex = false, size = true);
-        print("\n");
+        print_op(
+          bin_op_to_string[bin_op], ifx w then "ax" else "al",
+          print_immediate(*runner, w = w, signed = true, hex = false, size = true)
+        );
     }
   }
 }
@@ -306,19 +223,6 @@ slice_to_end :: inline (arr: $T, skip: s64) -> T {
   return result;
 }
 
-main :: () {
-  args := get_command_line_arguments();
-
-  if args.count != 2 {
-    print("Please pass one argument for the path to the file to disassemble\n");
-    return;
-  }
-
-  disassemble(xx read_entire_file(args[1]));
-
-  return;
-}
-
 get_integer_value :: (arr: [] u8, word: bool, signed: bool) -> (int) {
   result: int;
 
@@ -338,7 +242,7 @@ get_integer_value :: (arr: [] u8, word: bool, signed: bool) -> (int) {
   return result;
 }
 
-print_effective_address :: (bytes: *[] u8, mod: Mov_Mode, r_m: u8, word: bool) {
+effective_address :: (bytes: *[] u8, mod: Mov_Mode, r_m: u8, word: bool) -> string {
   displacements : [8] string : .[
     "bx + si",
     "bx + di",
@@ -357,8 +261,7 @@ print_effective_address :: (bytes: *[] u8, mod: Mov_Mode, r_m: u8, word: bool) {
   num_digits: int;
   add_or_sub: string;
 
-  print(ifx word then "word" else "byte");
-  print(" [");
+  data_size := ifx word then "word" else "byte";
 
   if mod != .MEM_MODE_NO_DISP || direct {
     disp_16 := mod == .MEM_MODE_16_DISP || direct;
@@ -373,17 +276,28 @@ print_effective_address :: (bytes: *[] u8, mod: Mov_Mode, r_m: u8, word: bool) {
   }
 
   if direct {
-    print("%h", formatted_offset);
+    return tprint("% [%h]", data_size, formatted_offset);
   }
   else {
-    print(displacements[r_m]);
-
     if mod != .MEM_MODE_NO_DISP {
-      print(" % %h", add_or_sub, formatted_offset);
+      return tprint("% [% % %h]", data_size, displacements[r_m], add_or_sub, formatted_offset);
+    }
+    else {
+      return tprint("% [%]", data_size, displacements[r_m]);
     }
   }
+}
 
-  print("]");
+effective_address_or_reg :: (bytes: *[] u8, mod: Mov_Mode, r_m: u8, word: bool) -> string {
+  if #complete mod == {
+    case .MEM_MODE_NO_DISP; #through;
+    case .MEM_MODE_8_DISP;  #through;
+    case .MEM_MODE_16_DISP;
+      return effective_address(bytes, mod = mod, r_m = r_m, word = word);
+
+    case .REG_MODE;
+      return reg_string(r_m, word);
+  }
 }
 
 displacement_op_size :: (mod: Mov_Mode, r_m: u8) -> int {
@@ -393,23 +307,34 @@ displacement_op_size :: (mod: Mov_Mode, r_m: u8) -> int {
                                                              2;
 }
 
-print_reg :: (reg: int, w: bool) {
-  print(reg_to_string[cast(int)w][reg]);
+reg_string :: (reg: int, w: bool) -> string {
+  return reg_to_string[cast(int)w][reg];
 }
 
-print_immediate :: (bytes: *[] u8, w: bool, signed: bool, hex: bool, size: bool) {
-  value := get_integer_value(<<bytes, word = w, signed = signed);
-
+print_immediate :: (bytes: *[] u8, w: bool, signed: bool, hex: bool, size: bool) -> string {
+  value     := get_integer_value(<<bytes, word = w, signed = signed);
   consume_front(bytes, 1 + (cast(int)w));
 
-  if size {
-    print(ifx w then "word " else "byte ");
-  }
+  data_size := ifx size then (ifx w then "word " else "byte ") else "";
   if hex {
     num_digits := ifx w then 5 else 3;
-    print("%h", FormatInt.{value = value, base = 16, minimum_digits = num_digits});
+    return tprint("%0%h", data_size, FormatInt.{value = value, base = 16, minimum_digits = num_digits});
   }
   else {
-    print("%", value);
+    return tprint("%0%", data_size, value);
   }
+}
+
+print_op :: (opcode: string, arg1: string, arg2: string, swap_args: bool = false) {
+  first, second := arg1, arg2;
+  if swap_args {
+    first  = arg2;
+    second = arg1;
+  }
+
+  log("% %, %", opcode, first, second);
+}
+
+print_op_1 :: (opcode: string, arg: string) {
+  log("% %", opcode, arg);
 }
