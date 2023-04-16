@@ -2,6 +2,7 @@ Emulator :: struct {
   ram: [65536] u8;
   ip: u16;
   regs: [Register.DI+1] [2]u8;
+  zf, pf, sf, of, cf, af, df, tf: bool;
 }
 
 Register :: enum u8 {
@@ -25,13 +26,24 @@ emulate :: (bytes: [] u8) {
     decode(step_one, emulator, emulator.ram[emulator.ip], emulator.ram[emulator.ip+1]);
 
     print(
-      "ax = %, bx = %, cx = %, dx = %, sp = %, ip = %\n",
+      "ax = %, bx = %, cx = %, dx = %, sp = %, ip = %, flags = [%]\n",
       get_integer_value(emulator.regs[Register.AX], word = true, signed = false),
       get_integer_value(emulator.regs[Register.BX], word = true, signed = false),
       get_integer_value(emulator.regs[Register.CX], word = true, signed = false),
       get_integer_value(emulator.regs[Register.DX], word = true, signed = false),
       get_integer_value(emulator.regs[Register.SP], word = true, signed = false),
       emulator.ip,
+      tprint(
+        "%0%0%0%0%0%0%0%0",
+        ifx emulator.zf then "Z" else "",
+        ifx emulator.pf then "P" else "",
+        ifx emulator.sf then "S" else "",
+        ifx emulator.of then "O" else "",
+        ifx emulator.cf then "C" else "",
+        ifx emulator.af then "A" else "",
+        ifx emulator.df then "D" else "",
+        ifx emulator.tf then "T" else "",
+      ),
     );
 
     print(
@@ -104,10 +116,10 @@ step_one :: (info: DecodeInfo, using emulator: *Emulator) {
       reg_loc := eval_reg(emulator, reg, w);
 
       if d {
-        apply_op(bin_op, reg_loc, xx get_integer_value(ea_loc, word = w, signed = false));
+        apply_binary_op(emulator, bin_op, reg_loc, xx get_integer_value(ea_loc, word = w, signed = false));
       }
       else {
-        apply_op(bin_op, ea_loc,  xx get_integer_value(reg_loc, word = w, signed = false));
+        apply_binary_op(emulator, bin_op, ea_loc,  xx get_integer_value(reg_loc, word = w, signed = false));
       }
 
     case .BIN_OP_I;
@@ -119,14 +131,14 @@ step_one :: (info: DecodeInfo, using emulator: *Emulator) {
       imm := read_immediate(emulator, word = w, signed = false);
       ip += 1 + cast(u16)w;
 
-      apply_op(bin_op, ea_loc, imm);
+      apply_binary_op(emulator, bin_op, ea_loc, imm);
 
     case .BIN_OP_A;
       ip += 1;
       reg_loc := eval_reg(emulator, 0 /* .AX */, w);
       imm := read_immediate(emulator, word = w, signed = false);
       ip += 1 + cast(u16)w;
-      apply_op(bin_op, reg_loc, imm);
+      apply_binary_op(emulator, bin_op, reg_loc, imm);
   }
 }
 
@@ -177,8 +189,6 @@ eval_effective_address :: (using emulator: Emulator, address: u16, mod: Mov_Mode
   formatted_offset: FormatInt;
   num_digits: int;
   add_or_sub: string;
-
-  data_size := ifx word then "word" else "byte";
 
   ip_shift: u16 = 0;
   location: Location;
@@ -261,20 +271,40 @@ write_to_location :: (dest: Location, src: Location) {
   write_to_location(dest, cast(u16) get_integer_value(src, word = src.count == 2, signed = false));
 }
 
-apply_op :: (op: Binary_Op, dest: Location, value: s32) {
-  dest_val := get_integer_value(dest, word = dest.count == 2, signed = false);
+apply_binary_op :: (using emulator: *Emulator, op: Binary_Op, dest: Location, value: s32) {
+  get_sign :: (value: int, count: int) -> bool {
+    return (count == 1 && (value & 0b10000000)) || (count == 2 && (value & 0b10000000_00000000));
+  }
+
+  dest_val   := get_integer_value(dest, word = dest.count == 2, signed = false);
+  dest_sign  := get_sign(dest_val, dest.count);
+  value_sign := get_sign(value, dest.count);
+  result: int;
 
   if #complete op == {
     case .ADD;
-      dest_val += value;
+      result = dest_val + value;
+      cf     = (result & (0b1_00000000_00000000)) != 0;
     case .ADC;
-      dest_val += value;
+      result = dest_val + value + (cast(int) cf);
+      cf     = (result & (0b1_00000000_00000000)) != 0;
     case .SBB;
-      dest_val -= value;
+      result = dest_val - value - (cast(int) cf);
+      cf     = value > dest_val;
     case .SUB;
-      dest_val -= value;
+      result = dest_val - value;
+      cf     = value > dest_val;
     case .CMP;
+      result = dest_val - value;
+      cf     = value > dest_val;
   }
 
-  write_to_location(dest, cast,no_check(u16) dest_val);
+  result_sign := get_sign(result, dest.count);
+  zf = result == 0;
+  sf = result_sign;
+  of = dest_sign == value_sign && result_sign != dest_sign;
+
+  if op != .CMP {
+    write_to_location(dest, cast,no_check(u16) result);
+  }
 }
