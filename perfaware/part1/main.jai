@@ -43,7 +43,8 @@ Opcode_Type :: enum u8 {
   BIN_OP_R;  // Binary operation - register/memory and register to either
   BIN_OP_I;  // Binary operation - immediate from register/memory
   BIN_OP_A;  // Binary operation - immediate from accumulator
-  // more to come...
+  UN_OP_R;   // Unary operation - on register
+  UN_OP_M;   // Unary operation - on memory
 }
 
 Binary_Op :: enum u8 #specified {
@@ -54,8 +55,27 @@ Binary_Op :: enum u8 #specified {
   CMP :: 0b111;
 }
 
+Unary_Op :: enum u8 #specified {
+  INC  :: 0b000;
+  DEC  :: 0b001;
+  NOT  :: 0b010;
+  NEG  :: 0b011;
+  MUL  :: 0b100;
+  IMUL :: 0b101;
+  DIV  :: 0b110;
+  IDIV :: 0b111;
+}
+
+Bitwise_Op :: enum u8 #specified {
+
+}
+
 bin_op_to_string : [8] string : .[
-  "add", "op1", "adc", "op3", "sbb", "sub", "op6", "cmp"
+  "add", "op1", "adc", "sbb", "op4", "sub", "op6", "cmp"
+];
+
+un_op_to_string : [8] string : .[
+  "inc", "dec", "not", "neg", "mul", "imul", "div", "idiv"
 ];
 
 opcode_table : [256] Opcode_Type : .[
@@ -68,7 +88,7 @@ opcode_table : [256] Opcode_Type : .[
   /* 0x30-0x3F */
   .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_A, .BIN_OP_A, .NO_OP,    .NO_OP,
   /* 0x40-0x4F */
-  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,
   /* 0x50-0x5F */
   .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
   /* 0x60-0x6F */
@@ -90,7 +110,7 @@ opcode_table : [256] Opcode_Type : .[
   /* 0xE0-0xEF */
   .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
   /* 0xF0-0xFF */
-  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .UN_OP_M,  .UN_OP_M,  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .UN_OP_M,  .UN_OP_M,
 ];
 
 DecodeInfo :: struct {
@@ -100,6 +120,7 @@ DecodeInfo :: struct {
   reg: u8;
   r_m: u8;
   bin_op: Binary_Op;
+  un_op: Unary_Op;
 }
 
 decode :: ($func: #type (DecodeInfo, *$T), object: *T, first: u8, second: u8) {
@@ -154,6 +175,16 @@ decode :: ($func: #type (DecodeInfo, *$T), object: *T, first: u8, second: u8) {
       info.bin_op = cast(Binary_Op) ((first & 0b00111000) >> 3);
       info.w      = (first & 0b0000001) != 0;
       info.reg    = 0 /* ax / al */;
+
+    case .UN_OP_R;
+      info.un_op = cast(Unary_Op) (first & 0b00001000 >> 3);
+      info.reg   = (first & 0b00000111);
+
+    case .UN_OP_M;
+      info.un_op = cast(Unary_Op) (second & 0b00111000 >> 3);
+      info.w     = (first & 0b1) != 0;
+      info.mod   = cast(Mov_Mode) (second & 0b11000000) >> 6;
+      info.r_m   = (second & 0b111);
   }
 
   func(info, object);
@@ -241,6 +272,14 @@ disassemble_one :: (info: DecodeInfo, runner: *[] u8) {
         bin_op_to_string[bin_op], ifx w then "ax" else "al",
         print_immediate(runner, w = w, signed = true, hex = false, size = true)
       );
+
+    case .UN_OP_R;
+      consume_front(runner, 1);
+      print_op_1(un_op_to_string[un_op], reg_string(reg, w = true));
+
+    case .UN_OP_M;
+      consume_front(runner, 2);
+      print_op_1(un_op_to_string[un_op], effective_address_or_reg(runner, mod = mod, r_m = r_m, word = w));
   }
 }
 

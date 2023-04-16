@@ -139,6 +139,16 @@ step_one :: (info: DecodeInfo, using emulator: *Emulator) {
       imm := read_immediate(emulator, word = w, signed = false);
       ip += 1 + cast(u16)w;
       apply_binary_op(emulator, bin_op, reg_loc, imm);
+
+    case .UN_OP_R;
+      ip += 1;
+      reg_loc := eval_reg(emulator, reg, w);
+      apply_unary_op(emulator, un_op, reg_loc);
+
+    case .UN_OP_M;
+      ip += 2;
+      ip_shift, ea_loc := eval_effective_address_or_reg(emulator, ip, mod = mod, r_m = r_m, word = w);
+      apply_unary_op(emulator, un_op, ea_loc);
   }
 }
 
@@ -271,11 +281,11 @@ write_to_location :: (dest: Location, src: Location) {
   write_to_location(dest, cast(u16) get_integer_value(src, word = src.count == 2, signed = false));
 }
 
-apply_binary_op :: (using emulator: *Emulator, op: Binary_Op, dest: Location, value: s32) {
-  get_sign :: (value: int, count: int) -> bool {
-    return (count == 1 && (value & 0b10000000)) || (count == 2 && (value & 0b10000000_00000000));
-  }
+get_sign :: (value: int, count: int) -> bool {
+  return (count == 1 && (value & 0b10000000)) || (count == 2 && (value & 0b10000000_00000000));
+}
 
+apply_binary_op :: (using emulator: *Emulator, op: Binary_Op, dest: Location, value: s32) {
   dest_val   := get_integer_value(dest, word = dest.count == 2, signed = false);
   dest_sign  := get_sign(dest_val, dest.count);
   value_sign := get_sign(value, dest.count);
@@ -307,4 +317,57 @@ apply_binary_op :: (using emulator: *Emulator, op: Binary_Op, dest: Location, va
   if op != .CMP {
     write_to_location(dest, cast,no_check(u16) result);
   }
+}
+
+apply_unary_op :: (using emulator: *Emulator, op: Unary_Op, arg: Location) {
+  arg_val  := get_integer_value(arg, word = arg.count == 2, signed = false);
+  arg_sign := get_sign(arg_val, arg.count);
+  result: int;
+  dest: Location;
+  dest_val: int;
+
+  if op >= .MUL && op <= .IDIV {
+    dest     = array_view(regs[Register.AX], arg.count);
+    dest_val = get_integer_value(dest, word = dest.count == 2, signed = false);
+  }
+  else {
+    dest     = arg;
+    dest_val = arg_val;
+  }
+  dest_sign := get_sign(dest_val, dest.count);
+
+  if #complete op == {
+    case .INC;
+      result = dest_val + 1;
+    case .DEC;
+      result = dest_val - 1;
+    case .NOT;
+      result = ~dest_val;
+    case .NEG;
+      result = -dest_val;
+      cf = result != 0;
+    case .MUL;
+      result = dest_val * arg_val;
+      cf = result > 0xFFFF;
+    case .IMUL;
+      result = dest_val * ifx arg.count == 2 then (cast,no_check(s16) arg_val) else (cast,no_check(s8) arg_val);
+      cf = dest_sign == arg_sign && get_sign(result, arg.count) != dest_sign;
+    case .DIV;
+      result = dest_val / arg_val;
+    case .IDIV;
+      result = dest_val / ifx arg.count == 2 then (cast,no_check(s16) arg_val) else (cast,no_check(s8) arg_val);
+  }
+
+  result_sign := get_sign(result, arg.count);
+  zf = result == 0;
+  sf = result_sign;
+
+  if op == .NEG {
+    of = (arg.count == 1 && arg_val == 0x80) || (arg.count == 2 && arg_val == 0x8000);
+  }
+  else {
+    of = dest_sign == arg_sign && result_sign != dest_sign;
+  }
+
+  write_to_location(dest, cast,no_check(u16) result);
 }
