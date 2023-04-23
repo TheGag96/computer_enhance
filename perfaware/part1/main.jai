@@ -327,7 +327,7 @@ disassemble :: (bytes: [] u8) {
     temp := runner;
     decode(disassemble_one, *runner, runner[0], ifx runner.count == 1 then 0 else runner[1]);
     if runner.data == temp.data {
-      log("Bingus");
+      log("Unrecognized opcode or instruction not implemented: %", FormatInt.{value = runner[0], base = 16});
       break;
     }
   }

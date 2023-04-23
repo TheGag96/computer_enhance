@@ -1,3 +1,5 @@
+DEBUG_LOG :: false;
+
 Emulator :: struct {
   ram: [65536] u8;
   ip: u16;
@@ -9,6 +11,9 @@ Register :: enum u8 {
   AX; CX; DX; BX; SP; BP; SI; DI;
 }
 
+IMAGE_ADDDRESS :: 64*4;
+IMAGE_SIZE     :: 64*64*4;
+
 emulate :: (bytes: [] u8) {
   emulator := New(Emulator);
   defer free(emulator);
@@ -18,51 +23,59 @@ emulate :: (bytes: [] u8) {
   running := true;
   while running {
     temp := tail(emulator.ram, emulator.ip);
-    decode(disassemble_one, *temp, temp[0], temp[1]);
+
+    if DEBUG_LOG {
+      decode(disassemble_one, *temp, temp[0], temp[1]);
+    }
 
     last_ip := emulator.ip;
 
     decode(step_one, emulator, emulator.ram[emulator.ip], emulator.ram[emulator.ip+1]);
 
-    print(
-      "ax = %, bx = %, cx = %, dx = %, sp = %, bp = %, si = %, di = %, ip = % -> %, flags = [%]\n",
-      get_integer_value(emulator.regs[Register.AX], word = true, signed = false),
-      get_integer_value(emulator.regs[Register.BX], word = true, signed = false),
-      get_integer_value(emulator.regs[Register.CX], word = true, signed = false),
-      get_integer_value(emulator.regs[Register.DX], word = true, signed = false),
-      get_integer_value(emulator.regs[Register.SP], word = true, signed = false),
-      get_integer_value(emulator.regs[Register.BP], word = true, signed = false),
-      get_integer_value(emulator.regs[Register.SI], word = true, signed = false),
-      get_integer_value(emulator.regs[Register.DI], word = true, signed = false),
-      last_ip,
-      emulator.ip,
-      tprint(
-        "%0%0%0%0%0%0%0%0",
-        ifx emulator.zf then "Z" else "",
-        ifx emulator.pf then "P" else "",
-        ifx emulator.sf then "S" else "",
-        ifx emulator.of then "O" else "",
-        ifx emulator.cf then "C" else "",
-        ifx emulator.af then "A" else "",
-        ifx emulator.df then "D" else "",
-        ifx emulator.tf then "T" else "",
-      ),
-    );
+    if DEBUG_LOG {
+      print(
+        "ax = %, bx = %, cx = %, dx = %, sp = %, bp = %, si = %, di = %, ip = % -> %, flags = [%]\n",
+        get_integer_value(emulator.regs[Register.AX], word = true, signed = false),
+        get_integer_value(emulator.regs[Register.BX], word = true, signed = false),
+        get_integer_value(emulator.regs[Register.CX], word = true, signed = false),
+        get_integer_value(emulator.regs[Register.DX], word = true, signed = false),
+        get_integer_value(emulator.regs[Register.SP], word = true, signed = false),
+        get_integer_value(emulator.regs[Register.BP], word = true, signed = false),
+        get_integer_value(emulator.regs[Register.SI], word = true, signed = false),
+        get_integer_value(emulator.regs[Register.DI], word = true, signed = false),
+        last_ip,
+        emulator.ip,
+        tprint(
+          "%0%0%0%0%0%0%0%0",
+          ifx emulator.zf then "Z" else "",
+          ifx emulator.pf then "P" else "",
+          ifx emulator.sf then "S" else "",
+          ifx emulator.of then "O" else "",
+          ifx emulator.cf then "C" else "",
+          ifx emulator.af then "A" else "",
+          ifx emulator.df then "D" else "",
+          ifx emulator.tf then "T" else "",
+        ),
+      );
 
-    print(
-      "[1000] = %\n[1002] = %\n[1004] = %\n[1006] = %\n====\n",
-      read_ram(emulator, 1000, word = true, signed = false),
-      read_ram(emulator, 1002, word = true, signed = false),
-      read_ram(emulator, 1004, word = true, signed = false),
-      read_ram(emulator, 1006, word = true, signed = false),
-    );
+      print(
+        "[1000] = %\n[1002] = %\n[1004] = %\n[1006] = %\n====\n",
+        read_ram(emulator, 1000, word = true, signed = false),
+        read_ram(emulator, 1002, word = true, signed = false),
+        read_ram(emulator, 1004, word = true, signed = false),
+        read_ram(emulator, 1006, word = true, signed = false),
+      );
+    }
 
     if emulator.ip >= bytes.count  running = false;
     if last_ip == emulator.ip {
-      log("Bingus");
+      log("Unrecognized opcode or instruction not implemented: %", FormatInt.{value = temp[0], base = 16});
       break;
     }
   }
+
+  // write out the section of RAM designated in the homework as the "image" or "screen" area
+  write_entire_file("image.data", cast(string) array_view(emulator.ram, IMAGE_ADDDRESS, IMAGE_SIZE));
 }
 
 step_one :: (info: DecodeInfo, using emulator: *Emulator) {
