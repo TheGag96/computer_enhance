@@ -22,15 +22,16 @@ emulate :: (bytes: [] u8) {
 
   running := true;
   while running {
-    temp := tail(emulator.ram, emulator.ip);
+    decode_info := decode(emulator.ram[emulator.ip], emulator.ram[emulator.ip+1]);
 
     if DEBUG_LOG {
-      decode(disassemble_one, *temp, temp[0], temp[1]);
+      temp := tail(emulator.ram, emulator.ip);
+      disassemble_one(decode_info, *temp);
     }
 
     last_ip := emulator.ip;
 
-    decode(step_one, emulator, emulator.ram[emulator.ip], emulator.ram[emulator.ip+1]);
+    step_one(decode_info, emulator);
 
     if DEBUG_LOG {
       print(
@@ -69,7 +70,7 @@ emulate :: (bytes: [] u8) {
 
     if emulator.ip >= bytes.count  running = false;
     if last_ip == emulator.ip {
-      log("Unrecognized opcode or instruction not implemented: %", FormatInt.{value = temp[0], base = 16});
+      log("Unrecognized opcode or instruction not implemented: %", FormatInt.{value = emulator.ram[emulator.ip], base = 16});
       break;
     }
   }

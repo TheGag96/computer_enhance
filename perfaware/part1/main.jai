@@ -202,7 +202,7 @@ DecodeInfo :: struct {
   is_dec:           bool;
 }
 
-decode :: ($func: #type (DecodeInfo, *$T), object: *T, first: u8, second: u8) {
+decode :: (first: u8, second: u8) -> DecodeInfo {
   info: DecodeInfo;
   info.op = opcode_table[first];
 
@@ -312,7 +312,7 @@ decode :: ($func: #type (DecodeInfo, *$T), object: *T, first: u8, second: u8) {
       info.w      = true;
   }
 
-  func(info, object);
+  return info;
 }
 
 disassemble :: (bytes: [] u8) {
@@ -324,8 +324,9 @@ disassemble :: (bytes: [] u8) {
     mark := get_temporary_storage_mark();
     defer set_temporary_storage_mark(mark);
 
-    temp := runner;
-    decode(disassemble_one, *runner, runner[0], ifx runner.count == 1 then 0 else runner[1]);
+    temp        := runner;
+    decode_info := decode(runner[0], ifx runner.count == 1 then 0 else runner[1]);
+    disassemble_one(decode_info, *runner);
     if runner.data == temp.data {
       log("Unrecognized opcode or instruction not implemented: %", FormatInt.{value = runner[0], base = 16});
       break;
