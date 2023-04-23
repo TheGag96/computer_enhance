@@ -128,8 +128,8 @@ step_one :: (info: DecodeInfo, using emulator: *Emulator) {
       ip += 2;
       ip_shift, ea_loc := eval_effective_address_or_reg(emulator, ip, mod = mod, r_m = r_m, word = w);
       ip += ip_shift;
-      imm := read_immediate(emulator, word = w, signed = false);
-      ip += 1 + cast(u16)w;
+      imm := read_immediate(emulator, word = !s && w, signed = s);
+      ip += imm_size;
 
       apply_binary_op(emulator, bin_op, ea_loc, imm);
 
@@ -140,15 +140,87 @@ step_one :: (info: DecodeInfo, using emulator: *Emulator) {
       ip += 1 + cast(u16)w;
       apply_binary_op(emulator, bin_op, reg_loc, imm);
 
-    case .UN_OP_R;
+    case .GRP_1_R;
       ip += 1;
       reg_loc := eval_reg(emulator, reg, w);
-      apply_unary_op(emulator, un_op, reg_loc);
+      apply_group_1_op(emulator, un_op, reg_loc);
 
-    case .UN_OP_M;
+    case .GRP_1_M;
       ip += 2;
       ip_shift, ea_loc := eval_effective_address_or_reg(emulator, ip, mod = mod, r_m = r_m, word = w);
-      apply_unary_op(emulator, un_op, ea_loc);
+      ip += ip_shift;
+      apply_group_1_op(emulator, un_op, ea_loc);
+
+    case .JMP_DIR;
+      ip += 1;
+      imm := read_immediate(emulator, word = w, signed = true);
+      ip += 1 + (cast(u16) w);
+      apply_jump(emulator, offset = imm, link = link, long = false, absolute = false);
+
+    case .JMP_LONG;
+      // apply_jump(emulator, offset = imm, link = link, long = false, absolute = false);
+
+    case .GRP_2;
+      ip += 2;
+      is_dec  := false;
+      is_long := false;
+      link    := false;
+
+      ip_shift, ea_loc := eval_effective_address_or_reg(emulator, ip, mod = mod, r_m = r_m, word = w);
+      ip += ip_shift;
+
+      if #complete group_2_op == {
+        case .DEC;
+          is_dec = true;
+          #through;
+        case .INC;
+          apply_inc_dec(emulator, is_dec = is_dec, arg = ea_loc);
+
+        case .CALL_IND_LONG;
+          is_long = true;
+          link    = true;
+          #through;
+        case .CALL_IND;
+          link    = true;
+          #through;
+        case .JMP_IND_LONG;
+          is_long = true;
+          #through;
+        case .JMP_IND;
+          jump_offset := get_integer_value(ea_loc, word = true, signed = true);
+          apply_jump(emulator, offset = jump_offset, link = link, long = is_long, absolute = false);
+
+        case .PUSH;
+          value_to_push := get_integer_value(ea_loc, word = true, signed = false);
+          stack_push(emulator, xx value_to_push);
+      }
+
+    case .STACK_R;
+      ip += 1;
+      reg_loc := eval_reg(emulator, reg, w = true);
+
+      if is_pop {
+        popped_value := stack_pop(emulator, word = true);
+        write_to_location(reg_loc, cast(u16) popped_value);
+      }
+      else {
+        value_to_push := get_integer_value(reg_loc, word = true, signed = false);
+        stack_push(emulator, xx value_to_push, word = true);
+      }
+
+    case .POP_RM;
+      ip += 2;
+      ip_shift, ea_loc := eval_effective_address_or_reg(emulator, ip, mod = mod, r_m = r_m, word = true);
+      ip += ip_shift;
+      popped_value := stack_pop(emulator, word = true);
+      write_to_location(ea_loc, popped_value);
+
+    case .STACK_S;
+    case .RETURN;
+    case .INC_DEC_R;
+      ip += 1;
+      reg_loc := eval_reg(emulator, reg, w = true);
+      apply_inc_dec(emulator, is_dec = is_dec, arg = reg_loc);
   }
 }
 
@@ -290,36 +362,51 @@ apply_binary_op :: (using emulator: *Emulator, op: Binary_Op, dest: Location, va
   dest_sign  := get_sign(dest_val, dest.count);
   value_sign := get_sign(value, dest.count);
   result: int;
+  update_common_flags: bool = false;
 
   if #complete op == {
     case .ADD;
       result = dest_val + value;
       cf     = (result & (0b1_00000000_00000000)) != 0;
+      update_common_flags = true;
+    case .OR;
+      result = dest_val | value;
     case .ADC;
       result = dest_val + value + (cast(int) cf);
       cf     = (result & (0b1_00000000_00000000)) != 0;
+      update_common_flags = true;
     case .SBB;
       result = dest_val - value - (cast(int) cf);
       cf     = value > dest_val;
+      update_common_flags = true;
+    case .AND;
+      result = dest_val & value;
     case .SUB;
       result = dest_val - value;
       cf     = value > dest_val;
+      update_common_flags = true;
+    case .XOR;
+      result = dest_val ^ value;
     case .CMP;
       result = dest_val - value;
       cf     = value > dest_val;
+      update_common_flags = true;
   }
 
-  result_sign := get_sign(result, dest.count);
   zf = result == 0;
-  sf = result_sign;
-  of = dest_sign == value_sign && result_sign != dest_sign;
+
+  if update_common_flags {
+    result_sign := get_sign(result, dest.count);
+    sf = result_sign;
+    of = dest_sign == value_sign && result_sign != dest_sign;
+  }
 
   if op != .CMP {
     write_to_location(dest, cast,no_check(u16) result);
   }
 }
 
-apply_unary_op :: (using emulator: *Emulator, op: Unary_Op, arg: Location) {
+apply_group_1_op :: (using emulator: *Emulator, op: Group_1_Op, arg: Location) {
   arg_val  := get_integer_value(arg, word = arg.count == 2, signed = false);
   arg_sign := get_sign(arg_val, arg.count);
   result: int;
@@ -337,10 +424,7 @@ apply_unary_op :: (using emulator: *Emulator, op: Unary_Op, arg: Location) {
   dest_sign := get_sign(dest_val, dest.count);
 
   if #complete op == {
-    case .INC;
-      result = dest_val + 1;
-    case .DEC;
-      result = dest_val - 1;
+    case .TEST;
     case .NOT;
       result = ~dest_val;
     case .NEG;
@@ -370,4 +454,63 @@ apply_unary_op :: (using emulator: *Emulator, op: Unary_Op, arg: Location) {
   }
 
   write_to_location(dest, cast,no_check(u16) result);
+}
+
+apply_inc_dec :: (using emulator: *Emulator, is_dec: bool, arg: Location) {
+  arg_val   := get_integer_value(arg, word = arg.count == 2, signed = false);
+  arg_sign  := get_sign(arg_val, arg.count);
+  dest      := arg;
+  dest_val  := arg_val;
+  dest_sign := get_sign(dest_val, dest.count);
+  result: int;
+
+  if is_dec {
+    result = dest_val - 1;
+  }
+  else {
+    result = dest_val + 1;
+  }
+
+  result_sign := get_sign(result, arg.count);
+  zf = result == 0;
+  sf = result_sign;
+  of = dest_sign == arg_sign && result_sign != dest_sign;
+
+  write_to_location(dest, cast,no_check(u16) result);
+}
+
+apply_jump :: (using emulator: *Emulator, offset: int, link: bool, long: bool, absolute: bool) {
+  // @TODO: long jumps
+
+  if link {
+    stack_push(emulator, ip, word = true);
+  }
+
+  if absolute {
+    ip = cast(u16) offset;
+  }
+  else {
+    ip = cast(u16) (ip + offset);
+  }
+}
+
+stack_push :: (using emulator: *Emulator, value: u16, word: bool = true) {
+  push_size     := (1 + cast(int) word);
+  new_stack_ptr := cast,no_check(u16) (get_integer_value(regs[Register.SP], word = true, signed = false) - push_size);
+  stack_loc     := array_view(ram, new_stack_ptr, push_size);
+
+  write_to_location(regs[Register.SP], new_stack_ptr);
+  write_to_location(stack_loc,         value);
+}
+
+stack_pop :: (using emulator: *Emulator, word: bool = true) -> u16 {
+  pop_size      := (1 + cast(int) word);
+  old_stack_ptr := cast,no_check(u16) get_integer_value(regs[Register.SP], word = true, signed = false);
+  new_stack_ptr := cast,no_check(u16) (old_stack_ptr + pop_size);
+  stack_loc     := array_view(ram, old_stack_ptr, pop_size);
+  result        := read_ram(emulator, stack_loc, signed = false);
+
+  write_to_location(regs[Register.SP], new_stack_ptr);
+
+  return xx result;
 }

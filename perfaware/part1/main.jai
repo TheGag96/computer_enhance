@@ -43,21 +43,31 @@ Opcode_Type :: enum u8 {
   BIN_OP_R;  // Binary operation - register/memory and register to either
   BIN_OP_I;  // Binary operation - immediate from register/memory
   BIN_OP_A;  // Binary operation - immediate from accumulator
-  UN_OP_R;   // Unary operation - on register
-  UN_OP_M;   // Unary operation - on memory
+  GRP_1_R;   // Test, not, neg, mul, imul, div, idiv - on register
+  GRP_1_M;   // Test, not, neg, mul, imul, div, idiv - on memory
+  JMP_DIR;   // Jump/call (direct, short)
+  JMP_LONG;  // Jump/call (direct, long)
+  GRP_2;     // Jump/call (indirect), push, from register/memory
+  STACK_R;   // Push/pop from/to register
+  STACK_S;   // Push/pop from/to segment register
+  POP_RM;    // Pop to register/memory
+  INC_DEC_R; // Increment/decrement register
+  RETURN;    // Return
 }
 
 Binary_Op :: enum u8 #specified {
   ADD :: 0b000;
+  OR  :: 0b001;
   ADC :: 0b010;
   SBB :: 0b011;
+  AND :: 0b100;
   SUB :: 0b101;
+  XOR :: 0b110;
   CMP :: 0b111;
 }
 
-Unary_Op :: enum u8 #specified {
-  INC  :: 0b000;
-  DEC  :: 0b001;
+Group_1_Op :: enum u8 #specified {
+  TEST :: 0b000;
   NOT  :: 0b010;
   NEG  :: 0b011;
   MUL  :: 0b100;
@@ -66,61 +76,92 @@ Unary_Op :: enum u8 #specified {
   IDIV :: 0b111;
 }
 
-Bitwise_Op :: enum u8 #specified {
+Shift_Op :: enum u8 #specified {
+  ROL :: 0b000;
+  ROR :: 0b001;
+  RCL :: 0b010;
+  RCR :: 0b011;
+  SHL :: 0b100;
+  SHR :: 0b101;
+  SAR :: 0b111;
+}
 
+Group_2_Op :: enum u8 #specified {
+  INC           :: 0b000;
+  DEC           :: 0b001;
+  CALL_IND      :: 0b010;
+  CALL_IND_LONG :: 0b011;
+  JMP_IND       :: 0b100;
+  JMP_IND_LONG  :: 0b101;
+  PUSH          :: 0b110;
 }
 
 bin_op_to_string : [8] string : .[
-  "add", "op1", "adc", "sbb", "op4", "sub", "op6", "cmp"
+  "add", "or", "adc", "sbb", "and", "sub", "xor", "cmp"
 ];
 
-un_op_to_string : [8] string : .[
-  "inc", "dec", "not", "neg", "mul", "imul", "div", "idiv"
+group_1_op_to_string : [8] string : .[
+  "test", "op1", "not", "neg", "mul", "imul", "div", "idiv"
+];
+
+shift_op_to_string : [8] string : .[
+  "rol", "ror", "rcl", "rcr", "shl", "shr", "op6", "sar"
+];
+
+group_2_op_to_string : [8] string : .[
+  "inc", "dec", "call", "call", "jmp", "jmp", "push", "op7"
 ];
 
 opcode_table : [256] Opcode_Type : .[
   /* 0x00-0x0F */
-  .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_A, .BIN_OP_A, .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_A, .BIN_OP_A, .STACK_S,  .STACK_S,  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .STACK_S,  .NO_OP,
   /* 0x10-0x1F */
-  .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_A, .BIN_OP_A, .NO_OP,    .NO_OP,    .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_A, .BIN_OP_A, .NO_OP,    .NO_OP,
+  .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_A, .BIN_OP_A, .STACK_S,  .STACK_S,  .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_A, .BIN_OP_A, .STACK_S,  .STACK_S,
   /* 0x20-0x2F */
   .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_A, .BIN_OP_A, .NO_OP,    .NO_OP,
   /* 0x30-0x3F */
   .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_R, .BIN_OP_A, .BIN_OP_A, .NO_OP,    .NO_OP,
   /* 0x40-0x4F */
-  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,  .UN_OP_R,
+  .INC_DEC_R,.INC_DEC_R,.INC_DEC_R,.INC_DEC_R,.INC_DEC_R,.INC_DEC_R,.INC_DEC_R,.INC_DEC_R,.INC_DEC_R,.INC_DEC_R,.INC_DEC_R,.INC_DEC_R,.INC_DEC_R,.INC_DEC_R,.INC_DEC_R,.INC_DEC_R,
   /* 0x50-0x5F */
-  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  .STACK_R,  .STACK_R,  .STACK_R,  .STACK_R,  .STACK_R,  .STACK_R,  .STACK_R,  .STACK_R,  .STACK_R,  .STACK_R,  .STACK_R,  .STACK_R,  .STACK_R,  .STACK_R,  .STACK_R,  .STACK_R,
   /* 0x60-0x6F */
   .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
   /* 0x70-0x7F */
   .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
   /* 0x80-0x8F */
-  .BIN_OP_I, .BIN_OP_I, .BIN_OP_I, .BIN_OP_I, .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .MOV_RM2R, .MOV_RM2R, .MOV_RM2R, .MOV_RM2R, .MOV_S2RM, .NO_OP,    .MOV_RM2S, .NO_OP,
+  .BIN_OP_I, .BIN_OP_I, .BIN_OP_I, .BIN_OP_I, .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .MOV_RM2R, .MOV_RM2R, .MOV_RM2R, .MOV_RM2R, .MOV_S2RM, .NO_OP,    .MOV_RM2S, .POP_RM,
   /* 0x90-0x9F */
-  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .JMP_LONG, .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
   /* 0xA0-0xAF */
   .MOV_M2A,  .MOV_M2A,  .MOV_A2M,  .MOV_A2M,  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
   /* 0xB0-0xBF */
   .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,
   /* 0xC0-0xCF */
-  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .MOV_I2RM, .MOV_I2RM, .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  .NO_OP,    .NO_OP,    .RETURN,   .RETURN,   .NO_OP,    .NO_OP,    .MOV_I2RM, .MOV_I2RM, .NO_OP,    .NO_OP,    .RETURN,   .RETURN,   .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
   /* 0xD0-0xDF */
   .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
   /* 0xE0-0xEF */
-  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .JMP_DIR,  .JMP_DIR,  .JMP_LONG, .JMP_DIR,  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
   /* 0xF0-0xFF */
-  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .UN_OP_M,  .UN_OP_M,  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .UN_OP_M,  .UN_OP_M,
+  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .GRP_1_M,  .GRP_1_M,  .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .GRP_2,    .GRP_2,
 ];
 
 DecodeInfo :: struct {
-  op: Opcode_Type;
-  w, d, s: bool;
-  mod: Mov_Mode;
-  reg: u8;
-  r_m: u8;
-  bin_op: Binary_Op;
-  un_op: Unary_Op;
+  op:         Opcode_Type;
+  w, d, s:    bool;
+  mod:        Mov_Mode;
+  reg:        u8;
+  r_m:        u8;
+  bin_op:     Binary_Op;
+  un_op:      Group_1_Op;
+  shift_op:   Shift_Op;
+  group_2_op: Group_2_Op;
+  link:       bool;
+  is_pop:     bool;
+  add_offset: bool;
+  long:       bool;
+  is_dec:     bool;
 }
 
 decode :: ($func: #type (DecodeInfo, *$T), object: *T, first: u8, second: u8) {
@@ -176,15 +217,52 @@ decode :: ($func: #type (DecodeInfo, *$T), object: *T, first: u8, second: u8) {
       info.w      = (first & 0b0000001) != 0;
       info.reg    = 0 /* ax / al */;
 
-    case .UN_OP_R;
-      info.un_op = cast(Unary_Op) (first & 0b00001000 >> 3);
+    case .GRP_1_R;
+      info.un_op = cast(Group_1_Op) (first & 0b00001000 >> 3);
       info.reg   = (first & 0b00000111);
 
-    case .UN_OP_M;
-      info.un_op = cast(Unary_Op) (second & 0b00111000 >> 3);
+    case .GRP_1_M;
+      info.un_op = cast(Group_1_Op) (second & 0b00111000 >> 3);
       info.w     = (first & 0b1) != 0;
       info.mod   = cast(Mov_Mode) (second & 0b11000000) >> 6;
       info.r_m   = (second & 0b111);
+
+    case .JMP_DIR;
+      info.link = (first & 0b1) == 0;
+      info.w    = (first & 0b00000010) == 0;
+
+    case .JMP_LONG;
+      info.link = (first & 0b00010000) != 0;
+
+    case .GRP_2;
+      info.mod        = cast(Mov_Mode) (second & 0b11000000) >> 6;
+      info.group_2_op = cast(Group_2_Op) ((second & 0b00111000) >> 3);
+      info.r_m        = (second & 0b111);
+      info.w          = (first & 0b1) != 0;
+
+    case .STACK_R;
+      info.reg    = (first & 0b11);
+      info.is_pop = (first & 0b0000100) != 0;
+      info.w      = true;
+
+    case .STACK_S;
+      info.reg    = (first & 0b0011000) >> 3;
+      info.is_pop = (first & 0b1) != 0;
+      info.w      = true;
+
+    case .POP_RM;
+      info.mod = cast(Mov_Mode) (second & 0b11000000) >> 6;
+      info.r_m = (second & 0b111);
+      info.w   = true;
+
+    case .RETURN;
+      info.add_offset = (first & 0b1) == 0;
+      info.long       = (first & 0b00001000) != 0;
+
+    case .INC_DEC_R;
+      info.is_dec = (first & 0b00001000) != 0;
+      info.reg    = (first & 0b00000111);
+      info.w      = true;
   }
 
   func(info, object);
@@ -273,13 +351,52 @@ disassemble_one :: (info: DecodeInfo, runner: *[] u8) {
         print_immediate(runner, w = w, signed = true, hex = false, size = true)
       );
 
-    case .UN_OP_R;
+    case .GRP_1_R;
       consume_front(runner, 1);
-      print_op_1(un_op_to_string[un_op], reg_string(reg, w = true));
+      print_op_1(group_1_op_to_string[un_op], reg_string(reg, w = true));
 
-    case .UN_OP_M;
+    case .GRP_1_M;
       consume_front(runner, 2);
-      print_op_1(un_op_to_string[un_op], effective_address_or_reg(runner, mod = mod, r_m = r_m, word = w));
+      print_op_1(group_1_op_to_string[un_op], effective_address_or_reg(runner, mod = mod, r_m = r_m, word = w));
+
+    case .JMP_DIR;
+      consume_front(runner, 1);
+      print_op_1(
+        ifx link then "call" else "jmp",
+        print_immediate(runner, w = w, signed = true, hex = false, size = false)
+      );
+
+    case .JMP_LONG;
+
+
+    case .GRP_2;
+      consume_front(runner, 2);
+      print_op_1(
+        group_2_op_to_string[group_2_op],
+        effective_address_or_reg(runner, mod = mod, r_m = r_m, word = w)
+      );
+
+    case .STACK_R;
+      consume_front(runner, 1);
+      print_op_1(ifx is_pop then "pop" else "push", reg_string(reg, w = true));
+
+    case .STACK_S;
+
+    case .POP_RM;
+      consume_front(runner, 2);
+      print_op_1(
+        "pop",
+        effective_address_or_reg(runner, mod = mod, r_m = r_m, word = true)
+      );
+
+    case .RETURN;
+      // @TODO: Use long flag
+      print_op_1("ret", print_immediate(runner, w = true, signed = true, hex = false, size = false));
+
+    case .INC_DEC_R;
+      consume_front(runner, 1);
+      print_op_1(ifx is_dec then "dec" else "inc", reg_string(reg, w = true));
+
   }
 }
 
