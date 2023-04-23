@@ -195,28 +195,95 @@ step_one :: (info: DecodeInfo, using emulator: *Emulator) {
           stack_push(emulator, xx value_to_push);
       }
 
+    case .COND_JMP;
+      ip += 1;
+      offset        := read_immediate(emulator, word = false, signed = true);
+      condition_met := false;
+      inverse       := (conditional_jump & 0b10) != 0;
+
+      if #complete conditional_jump == {
+        case .JO; #through;
+        case .JNO;
+          condition_met = of;
+        case .JB_JNAE; #through;
+        case .JNB_JAE;
+          condition_met = cf;
+        case .JE_JZ; #through;
+        case .JNE_JNZ;
+          condition_met = zf;
+        case .JBE_JNA; #through;
+        case .JNBE_JA;
+          condition_met = cf || zf;
+        case .JS; #through;
+        case .JNS;
+          condition_met = sf;
+        case .JP_JPE; #through;
+        case .JNP_JPO;
+          condition_met = pf;
+        case .JL_JNGE; #through;
+        case .JNL_JGE;
+          condition_met = sf ^ of;
+        case .JLE_JNG; #through;
+        case .JNLE_JG;
+          condition_met = (sf ^ of) || zf;
+      }
+
+      if condition_met && !inverse {
+        apply_jump(emulator, offset, link = false, long  = false, absolute = false);
+      }
+
+    case .LOOP_JMP;
+      ip += 1;
+      offset        := read_immediate(emulator, word = false, signed = true);
+      condition_met := false;
+      cx_val        := get_integer_value(regs[Register.CX], word = true, signed = false);
+
+      cx_val -= 1;
+      write_to_location(regs[Register.CX], cast,no_check(u16) cx_val);
+      if #complete loop_jump == {
+        case .LOOPNZ_LOOPNE;
+          condition_met = cx_val != 0 && !zf;
+        case .LOOPZ_LOOPE;
+          condition_met = cx_val != 0 && zf;
+        case .LOOP;
+          condition_met = cx_val != 0;
+        case .JCXZ;
+          condition_met = cx_val == 0;
+      }
+
+      if condition_met {
+        apply_jump(emulator, offset, link = false, long  = false, absolute = false);
+      }
+
     case .STACK_R;
       ip += 1;
       reg_loc := eval_reg(emulator, reg, w = true);
 
       if is_pop {
-        popped_value := stack_pop(emulator, word = true);
+        popped_value := stack_pop(emulator);
         write_to_location(reg_loc, cast(u16) popped_value);
       }
       else {
         value_to_push := get_integer_value(reg_loc, word = true, signed = false);
-        stack_push(emulator, xx value_to_push, word = true);
+        stack_push(emulator, xx value_to_push);
       }
 
     case .POP_RM;
       ip += 2;
       ip_shift, ea_loc := eval_effective_address_or_reg(emulator, ip, mod = mod, r_m = r_m, word = true);
       ip += ip_shift;
-      popped_value := stack_pop(emulator, word = true);
+      popped_value := stack_pop(emulator);
       write_to_location(ea_loc, popped_value);
 
     case .STACK_S;
+
     case .RETURN;
+      // @TODO: Support long return
+      ip += 1;
+      offset := ifx add_offset then read_immediate(emulator, word = true, signed = true) else 0;
+      return_address := stack_pop(emulator);
+      ip = xx,no_check ((cast(int) return_address) + offset);
+
     case .INC_DEC_R;
       ip += 1;
       reg_loc := eval_reg(emulator, reg, w = true);
@@ -393,6 +460,7 @@ apply_binary_op :: (using emulator: *Emulator, op: Binary_Op, dest: Location, va
       update_common_flags = true;
   }
 
+  // @TODO lots of the less important flags
   zf = result == 0;
 
   if update_common_flags {
@@ -442,6 +510,7 @@ apply_group_1_op :: (using emulator: *Emulator, op: Group_1_Op, arg: Location) {
       result = dest_val / ifx arg.count == 2 then (cast,no_check(s16) arg_val) else (cast,no_check(s8) arg_val);
   }
 
+  // @TODO lots of the less important flags
   result_sign := get_sign(result, arg.count);
   zf = result == 0;
   sf = result_sign;
@@ -471,6 +540,7 @@ apply_inc_dec :: (using emulator: *Emulator, is_dec: bool, arg: Location) {
     result = dest_val + 1;
   }
 
+  // @TODO lots of the less important flags
   result_sign := get_sign(result, arg.count);
   zf = result == 0;
   sf = result_sign;
@@ -483,7 +553,7 @@ apply_jump :: (using emulator: *Emulator, offset: int, link: bool, long: bool, a
   // @TODO: long jumps
 
   if link {
-    stack_push(emulator, ip, word = true);
+    stack_push(emulator, ip);
   }
 
   if absolute {
@@ -494,20 +564,18 @@ apply_jump :: (using emulator: *Emulator, offset: int, link: bool, long: bool, a
   }
 }
 
-stack_push :: (using emulator: *Emulator, value: u16, word: bool = true) {
-  push_size     := (1 + cast(int) word);
-  new_stack_ptr := cast,no_check(u16) (get_integer_value(regs[Register.SP], word = true, signed = false) - push_size);
-  stack_loc     := array_view(ram, new_stack_ptr, push_size);
+stack_push :: (using emulator: *Emulator, value: u16) {
+  new_stack_ptr := cast,no_check(u16) (get_integer_value(regs[Register.SP], word = true, signed = false) - 2);
+  stack_loc     := array_view(ram, new_stack_ptr, 2);
 
   write_to_location(regs[Register.SP], new_stack_ptr);
   write_to_location(stack_loc,         value);
 }
 
-stack_pop :: (using emulator: *Emulator, word: bool = true) -> u16 {
-  pop_size      := (1 + cast(int) word);
+stack_pop :: (using emulator: *Emulator) -> u16 {
   old_stack_ptr := cast,no_check(u16) get_integer_value(regs[Register.SP], word = true, signed = false);
-  new_stack_ptr := cast,no_check(u16) (old_stack_ptr + pop_size);
-  stack_loc     := array_view(ram, old_stack_ptr, pop_size);
+  new_stack_ptr := cast,no_check(u16) (old_stack_ptr + 2);
+  stack_loc     := array_view(ram, old_stack_ptr, 2);
   result        := read_ram(emulator, stack_loc, signed = false);
 
   write_to_location(regs[Register.SP], new_stack_ptr);
