@@ -14,7 +14,6 @@ emulate :: (bytes: [] u8) {
   defer free(emulator);
 
   slice_copy(head(emulator.ram, bytes.count), bytes);
-  print("%", emulator.ram);
 
   running := true;
   while running {
@@ -26,12 +25,16 @@ emulate :: (bytes: [] u8) {
     decode(step_one, emulator, emulator.ram[emulator.ip], emulator.ram[emulator.ip+1]);
 
     print(
-      "ax = %, bx = %, cx = %, dx = %, sp = %, ip = %, flags = [%]\n",
+      "ax = %, bx = %, cx = %, dx = %, sp = %, bp = %, si = %, di = %, ip = % -> %, flags = [%]\n",
       get_integer_value(emulator.regs[Register.AX], word = true, signed = false),
       get_integer_value(emulator.regs[Register.BX], word = true, signed = false),
       get_integer_value(emulator.regs[Register.CX], word = true, signed = false),
       get_integer_value(emulator.regs[Register.DX], word = true, signed = false),
       get_integer_value(emulator.regs[Register.SP], word = true, signed = false),
+      get_integer_value(emulator.regs[Register.BP], word = true, signed = false),
+      get_integer_value(emulator.regs[Register.SI], word = true, signed = false),
+      get_integer_value(emulator.regs[Register.DI], word = true, signed = false),
+      last_ip,
       emulator.ip,
       tprint(
         "%0%0%0%0%0%0%0%0",
@@ -47,7 +50,7 @@ emulate :: (bytes: [] u8) {
     );
 
     print(
-      "[1000] = %\n[1002] = %\n[1004] = %\n[1006] = %\n",
+      "[1000] = %\n[1002] = %\n[1004] = %\n[1006] = %\n====\n",
       read_ram(emulator, 1000, word = true, signed = false),
       read_ram(emulator, 1002, word = true, signed = false),
       read_ram(emulator, 1004, word = true, signed = false),
@@ -198,8 +201,9 @@ step_one :: (info: DecodeInfo, using emulator: *Emulator) {
     case .COND_JMP;
       ip += 1;
       offset        := read_immediate(emulator, word = false, signed = true);
+      ip += 1;
       condition_met := false;
-      inverse       := (conditional_jump & 0b10) != 0;
+      inverse       := (conditional_jump & 0b1) != 0;
 
       if #complete conditional_jump == {
         case .JO; #through;
@@ -228,13 +232,14 @@ step_one :: (info: DecodeInfo, using emulator: *Emulator) {
           condition_met = (sf ^ of) || zf;
       }
 
-      if condition_met && !inverse {
+      if condition_met ^ inverse {
         apply_jump(emulator, offset, link = false, long  = false, absolute = false);
       }
 
     case .LOOP_JMP;
       ip += 1;
       offset        := read_immediate(emulator, word = false, signed = true);
+      ip += 1;
       condition_met := false;
       cx_val        := get_integer_value(regs[Register.CX], word = true, signed = false);
 
@@ -281,6 +286,7 @@ step_one :: (info: DecodeInfo, using emulator: *Emulator) {
       // @TODO: Support long return
       ip += 1;
       offset := ifx add_offset then read_immediate(emulator, word = true, signed = true) else 0;
+      ip += 2;
       return_address := stack_pop(emulator);
       ip = xx,no_check ((cast(int) return_address) + offset);
 
@@ -482,7 +488,7 @@ apply_group_1_op :: (using emulator: *Emulator, op: Group_1_Op, arg: Location) {
   dest_val: int;
 
   if op >= .MUL && op <= .IDIV {
-    dest     = array_view(regs[Register.AX], arg.count);
+    dest     = array_view(regs[Register.AX], 0, arg.count);
     dest_val = get_integer_value(dest, word = dest.count == 2, signed = false);
   }
   else {
@@ -505,9 +511,14 @@ apply_group_1_op :: (using emulator: *Emulator, op: Group_1_Op, arg: Location) {
       result = dest_val * ifx arg.count == 2 then (cast,no_check(s16) arg_val) else (cast,no_check(s8) arg_val);
       cf = dest_sign == arg_sign && get_sign(result, arg.count) != dest_sign;
     case .DIV;
+      // @TODO Handle division by zero
+      assert(arg_val != 0);
       result = dest_val / arg_val;
     case .IDIV;
-      result = dest_val / ifx arg.count == 2 then (cast,no_check(s16) arg_val) else (cast,no_check(s8) arg_val);
+      divisor := ifx arg.count == 2 then (cast,no_check(s16) arg_val) else (cast,no_check(s8) arg_val);
+      // @TODO Handle division by zero
+      assert(divisor != 0);
+      result = dest_val / divisor;
   }
 
   // @TODO lots of the less important flags
