@@ -2,6 +2,7 @@ DEBUG_LOG :: false;
 
 Emulator :: struct {
   ram: [65536] u8;
+  program_end: u16;
   ip: u16;
   regs: [Register.DI+1] [2]u8;
   zf, pf, sf, of, cf, af, df, tf: bool;
@@ -18,44 +19,65 @@ emulate :: (bytes: [] u8) {
   emulator := New(Emulator);
   defer free(emulator);
 
-  slice_copy(head(emulator.ram, bytes.count), bytes);
+  emulator_load_program_to_ram(emulator, bytes);
+  emulate_result := emulator_run(emulator);
+
+  // write out the section of RAM designated in the homework as the "image" or "screen" area
+  write_entire_file("image.data", cast(string) array_view(emulator.ram, IMAGE_ADDDRESS, IMAGE_SIZE));
+}
+
+emulator_load_program_to_ram :: (using emulator: *Emulator, bytes: [] u8) {
+  slice_copy(head(ram, bytes.count), bytes);
+  program_end = xx bytes.count;
+}
+
+Emulate_Result :: struct {
+  error: bool;
+
+  interrupted: bool;
+  interrupt_overflow: bool;
+  interrupt_type: u8;
+}
+
+emulator_run :: (using emulator: *Emulator) -> Emulate_Result {
+  result: Emulate_Result;
 
   running := true;
   while running {
-    decode_info := decode(emulator.ram[emulator.ip], emulator.ram[emulator.ip+1]);
+    decode_info := decode(ram[ip], ram[ip+1]);
 
     if DEBUG_LOG {
-      temp := tail(emulator.ram, emulator.ip);
+      temp := tail(ram, ip);
       disassemble_one(decode_info, *temp);
     }
 
-    last_ip := emulator.ip;
+    last_ip := ip;
 
-    step_one(decode_info, emulator);
+    step_result := emulator_step_one(decode_info, emulator);
 
     if DEBUG_LOG {
       print(
         "ax = %, bx = %, cx = %, dx = %, sp = %, bp = %, si = %, di = %, ip = % -> %, flags = [%]\n",
-        get_integer_value(emulator.regs[Register.AX], word = true, signed = false),
-        get_integer_value(emulator.regs[Register.BX], word = true, signed = false),
-        get_integer_value(emulator.regs[Register.CX], word = true, signed = false),
-        get_integer_value(emulator.regs[Register.DX], word = true, signed = false),
-        get_integer_value(emulator.regs[Register.SP], word = true, signed = false),
-        get_integer_value(emulator.regs[Register.BP], word = true, signed = false),
-        get_integer_value(emulator.regs[Register.SI], word = true, signed = false),
-        get_integer_value(emulator.regs[Register.DI], word = true, signed = false),
+        get_integer_value(regs[Register.AX], word = true, signed = false),
+        get_integer_value(regs[Register.BX], word = true, signed = false),
+        get_integer_value(regs[Register.CX], word = true, signed = false),
+        get_integer_value(regs[Register.DX], word = true, signed = false),
+        get_integer_value(regs[Register.SP], word = true, signed = false),
+        get_integer_value(regs[Register.BP], word = true, signed = false),
+        get_integer_value(regs[Register.SI], word = true, signed = false),
+        get_integer_value(regs[Register.DI], word = true, signed = false),
         last_ip,
-        emulator.ip,
+        ip,
         tprint(
           "%0%0%0%0%0%0%0%0",
-          ifx emulator.zf then "Z" else "",
-          ifx emulator.pf then "P" else "",
-          ifx emulator.sf then "S" else "",
-          ifx emulator.of then "O" else "",
-          ifx emulator.cf then "C" else "",
-          ifx emulator.af then "A" else "",
-          ifx emulator.df then "D" else "",
-          ifx emulator.tf then "T" else "",
+          ifx zf then "Z" else "",
+          ifx pf then "P" else "",
+          ifx sf then "S" else "",
+          ifx of then "O" else "",
+          ifx cf then "C" else "",
+          ifx af then "A" else "",
+          ifx df then "D" else "",
+          ifx tf then "T" else "",
         ),
       );
 
@@ -68,19 +90,42 @@ emulate :: (bytes: [] u8) {
       );
     }
 
-    if emulator.ip >= bytes.count  running = false;
-    if last_ip == emulator.ip {
-      log("Unrecognized opcode or instruction not implemented: %", FormatInt.{value = emulator.ram[emulator.ip], base = 16});
-      break;
+    // @Note: This is kind of a hack just for the homework. I would think normally an emulator would rely on the
+    //        program having a halt instruction or infinite loop somewhere.
+    if ip >= program_end  running = false;
+
+    if step_result.interrupted {
+      result = .{
+        interrupted        = step_result.interrupted,
+        interrupt_type     = step_result.interrupt_type,
+        interrupt_overflow = step_result.interrupt_overflow,
+      };
+
+      running = false;
+    }
+
+    if step_result.error || last_ip == ip {
+      result.error = true;
+      log("Unrecognized opcode or instruction not implemented: %", FormatInt.{value = ram[ip], base = 16});
+      running = false;
     }
   }
 
-  // write out the section of RAM designated in the homework as the "image" or "screen" area
-  write_entire_file("image.data", cast(string) array_view(emulator.ram, IMAGE_ADDDRESS, IMAGE_SIZE));
+  return result;
 }
 
-step_one :: (info: DecodeInfo, using emulator: *Emulator) {
+Step_Result :: struct {
+  error: bool;
+
+  interrupted: bool;
+  interrupt_overflow: bool;
+  interrupt_type: u8;
+}
+
+emulator_step_one :: (info: DecodeInfo, using emulator: *Emulator) -> Step_Result {
   using info;
+
+  result: Step_Result;
 
   if #complete info.op == {
     case .NO_OP;
@@ -308,7 +353,33 @@ step_one :: (info: DecodeInfo, using emulator: *Emulator) {
       ip += 1;
       reg_loc := eval_reg(emulator, reg, w = true);
       apply_inc_dec(emulator, is_dec = is_dec, arg = reg_loc);
+
+    case .INTERRUPT;
+      ip += 1;
+
+      if #complete interrupt == {
+        case .INT;
+          result.interrupted    = true;
+          result.interrupt_type = xx read_immediate(emulator, word = false, signed = false);
+          ip += 1;
+
+        case .INT3;
+          result.interrupted    = true;
+          result.interrupt_type = 3;
+
+        case .INTO;
+          if of {
+            result.interrupted        = true;
+            result.interrupt_overflow = true;
+          }
+
+        case .IRET;
+          // @TODO
+          result.error = true;
+      }
   }
+
+  return result;
 }
 
 head :: inline (arr: [] $T, length: s64) -> [] T {

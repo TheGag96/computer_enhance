@@ -54,6 +54,7 @@ Opcode_Type :: enum u8 {
   STACK_S;   // Push/pop from/to segment register
   POP_RM;    // Pop to register/memory
   INC_DEC_R; // Increment/decrement register
+  INTERRUPT; // Interrupts and interrupt return
   RETURN;    // Return
 }
 
@@ -124,6 +125,13 @@ Loop_Jump :: enum u8 #specified {
   JCXZ          :: 0b11;
 }
 
+Interrupt :: enum u8 #specified {
+  INT3  :: 0b00;
+  INT   :: 0b01;
+  INTO  :: 0b10;
+  IRET  :: 0b11;
+}
+
 bin_op_to_string : [8] string : .[
   "add", "or", "adc", "sbb", "and", "sub", "xor", "cmp"
 ];
@@ -146,6 +154,10 @@ conditional_jump_to_string : [16] string : .[
 
 loop_jump_to_string : [4] string : .[
   "loopnz", "loopz", "loop", "lcxz"
+];
+
+interrupt_to_string : [4] string : .[
+  "int3", "int", "into", "iret"
 ];
 
 opcode_table : [256] Opcode_Type : .[
@@ -174,7 +186,7 @@ opcode_table : [256] Opcode_Type : .[
   /* 0xB0-0xBF */
   .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,  .MOV_I2R,
   /* 0xC0-0xCF */
-  .NO_OP,    .NO_OP,    .RETURN,   .RETURN,   .NO_OP,    .NO_OP,    .MOV_I2RM, .MOV_I2RM, .NO_OP,    .NO_OP,    .RETURN,   .RETURN,   .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
+  .NO_OP,    .NO_OP,    .RETURN,   .RETURN,   .NO_OP,    .NO_OP,    .MOV_I2RM, .MOV_I2RM, .NO_OP,    .NO_OP,    .RETURN,   .RETURN,   .INTERRUPT,.INTERRUPT,.INTERRUPT,.INTERRUPT,
   /* 0xD0-0xDF */
   .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,    .NO_OP,
   /* 0xE0-0xEF */
@@ -195,6 +207,7 @@ DecodeInfo :: struct {
   group_2_op:       Group_2_Op;
   conditional_jump: Conditional_Jump;
   loop_jump:        Loop_Jump;
+  interrupt:        Interrupt;
   link:             bool;
   is_pop:           bool;
   add_offset:       bool;
@@ -310,6 +323,9 @@ decode :: (first: u8, second: u8) -> DecodeInfo {
       info.is_dec = (first & 0b00001000) != 0;
       info.reg    = (first & 0b00000111);
       info.w      = true;
+
+    case .INTERRUPT;
+      info.interrupt = cast(Interrupt) (first & 0b11);
   }
 
   return info;
@@ -463,6 +479,18 @@ disassemble_one :: (info: DecodeInfo, runner: *[] u8) {
       consume_front(runner, 1);
       print_op_1(ifx is_dec then "dec" else "inc", reg_string(reg, w = true));
 
+    case .INTERRUPT;
+      consume_front(runner, 1);
+
+      if #complete interrupt == {
+        case .INT;
+          print_op_1("int", print_immediate(runner, w = false, signed = false, hex = false, size = false));
+
+        case .INT3; #through;
+        case .INTO; #through;
+        case .IRET;
+          log("%\n", interrupt_to_string[interrupt]);
+      }
   }
 }
 
