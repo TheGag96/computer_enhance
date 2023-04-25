@@ -468,7 +468,7 @@ eval_effective_address :: (using emulator: Emulator, address: u16, mod: Mov_Mode
     }
 
     if mod != .MEM_MODE_NO_DISP {
-      address_to_read += xx offset;
+      address_to_read = xx,no_check (address_to_read + offset);
     }
 
     location = array_view(emulator.ram, address_to_read, 1 + (cast(u16)word));
