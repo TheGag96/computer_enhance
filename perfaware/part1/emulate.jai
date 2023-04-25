@@ -20,6 +20,8 @@ OUTPUT_IMAGE_ON_EXIT :: false;
 IMAGE_ADDDRESS       :: 64*4;
 IMAGE_SIZE           :: 64*64*4;
 
+INPUT_REGISTER       :: 0xFFFE;
+
 emulate :: (bytes: [] u8) {
   emulator := New(Emulator);
   defer free(emulator);
@@ -64,7 +66,7 @@ emulate :: (bytes: [] u8) {
           );
 
           new_input := emulator_window_handle_input(*emu_window);
-          write_to_location(array_view(emulator.ram, 0xFFFF, 1), cast(u16) new_input);
+          write_to_location(array_view(emulator.ram, INPUT_REGISTER, 2), cast(u16) new_input);
       }
     }
     else {

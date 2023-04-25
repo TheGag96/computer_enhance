@@ -70,11 +70,6 @@ emulator_window_draw_frame :: (using emu_window: *Emulator_Window, frame: [] u8)
   frame_copy.allocator = temporary_allocator;
   array_copy(*frame_copy, frame);
 
-  // Override alpha to full for each pixel since the program may not set the alpha bytes
-  for i: 0..screen_width*screen_height-1 {
-    frame_copy[i*4+3] = 0xFF;
-  }
-
   bitmap: Simp.Bitmap = .{
     width  = screen_width,
     height = screen_height,
