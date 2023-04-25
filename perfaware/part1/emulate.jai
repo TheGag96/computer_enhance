@@ -1,4 +1,8 @@
-DEBUG_LOG :: false;
+#load "window.jai";
+
+#import "Debug";
+
+DEBUG_LOG := false;
 
 Emulator :: struct {
   ram: [65536] u8;
@@ -12,18 +16,66 @@ Register :: enum u8 {
   AX; CX; DX; BX; SP; BP; SI; DI;
 }
 
-IMAGE_ADDDRESS :: 64*4;
-IMAGE_SIZE     :: 64*64*4;
+OUTPUT_IMAGE_ON_EXIT :: false;
+IMAGE_ADDDRESS       :: 64*4;
+IMAGE_SIZE           :: 64*64*4;
 
 emulate :: (bytes: [] u8) {
   emulator := New(Emulator);
   defer free(emulator);
 
-  emulator_load_program_to_ram(emulator, bytes);
-  emulate_result := emulator_run(emulator);
+  emu_window: Emulator_Window;
+  window_started := false;
 
-  // write out the section of RAM designated in the homework as the "image" or "screen" area
-  write_entire_file("image.data", cast(string) array_view(emulator.ram, IMAGE_ADDDRESS, IMAGE_SIZE));
+  emulator_load_program_to_ram(emulator, bytes);
+
+  running := true;
+  while running {
+    emulate_result := emulator_run(emulator);
+
+    if emulate_result.interrupted {
+      if emulate_result.interrupt_type == {
+        // Interrput 0x0: window resize
+        case 0;
+          window_width, window_height := read_reg(emulator, .AX, word = true, signed = false),
+                                         read_reg(emulator, .BX, word = true, signed = false);
+
+          if window_started {
+            // @TODO
+            // emulator_window_resize(emu_window, xx window_width, xx window_height);
+          }
+          else {
+            emu_window = emulator_window_init(xx window_width, xx window_height);
+            window_started = true;
+          }
+
+          // DEBUG_LOG = true;
+
+        // Interrput 0x15: new framebuffer
+        case 0x15;
+          if !window_started {
+            window_started = true;
+            emu_window = emulator_window_init(64, 64); // fallback
+          }
+
+          emulator_window_draw_frame(
+            *emu_window,
+            array_view(emulator.ram, emulator.program_end, emu_window.screen_width*emu_window.screen_height*4)
+          );
+
+          new_input := emulator_window_handle_input(*emu_window);
+          write_to_location(array_view(emulator.ram, 0xFFFF, 1), cast(u16) new_input);
+      }
+    }
+    else {
+      running = false;
+    }
+  }
+
+  if OUTPUT_IMAGE_ON_EXIT {
+    // write out the section of RAM designated in the homework as the "image" or "screen" area
+    write_entire_file("image.data", cast(string) array_view(emulator.ram, IMAGE_ADDDRESS, IMAGE_SIZE));
+  }
 }
 
 emulator_load_program_to_ram :: (using emulator: *Emulator, bytes: [] u8) {
@@ -486,6 +538,10 @@ eval_reg :: (using emulator: Emulator, reg: int, w: bool) -> Location {
   get_high  := cast(u16) (!w && reg >= 4);
   num_bytes := 1 + (cast(u16)w);
   return array_view(regs[to_reg_index[cast(int)w][reg]], get_high, num_bytes);
+}
+
+read_reg :: (using emulator: Emulator, reg: Register, word: bool, signed: bool) -> s32 {
+  return xx get_integer_value(regs[reg], word = word, signed = signed);
 }
 
 read_ram :: (using emulator: Emulator, address: u16, word: bool, signed: bool) -> s32 {
