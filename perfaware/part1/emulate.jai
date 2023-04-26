@@ -67,6 +67,10 @@ emulate :: (bytes: [] u8) {
 
           new_input := emulator_window_handle_input(*emu_window);
           write_to_location(array_view(emulator.ram, INPUT_REGISTER, 2), cast(u16) new_input);
+
+        // Interrput 0xFF: Emulator debug breakpoint
+        case 0xFF;
+          breakpoint();
       }
     }
     else {
