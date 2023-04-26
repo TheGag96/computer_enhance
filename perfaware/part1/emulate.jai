@@ -236,10 +236,10 @@ emulator_step_one :: (info: DecodeInfo, using emulator: *Emulator) -> Step_Resul
       reg_loc := eval_reg(emulator, reg, w);
 
       if d {
-        apply_binary_op(emulator, bin_op, reg_loc, xx get_integer_value(ea_loc, word = w, signed = false));
+        apply_binary_op(emulator, bin_op, reg_loc, xx,no_check get_integer_value(ea_loc, word = w, signed = false));
       }
       else {
-        apply_binary_op(emulator, bin_op, ea_loc,  xx get_integer_value(reg_loc, word = w, signed = false));
+        apply_binary_op(emulator, bin_op, ea_loc,  xx,no_check get_integer_value(reg_loc, word = w, signed = false));
       }
 
     case .BIN_OP_I;
@@ -251,14 +251,14 @@ emulator_step_one :: (info: DecodeInfo, using emulator: *Emulator) -> Step_Resul
       imm := read_immediate(emulator, word = !s && w, signed = s);
       ip += imm_size;
 
-      apply_binary_op(emulator, bin_op, ea_loc, imm);
+      apply_binary_op(emulator, bin_op, ea_loc, xx,no_check imm);
 
     case .BIN_OP_A;
       ip += 1;
       reg_loc := eval_reg(emulator, 0 /* .AX */, w);
       imm := read_immediate(emulator, word = w, signed = false);
       ip += 1 + cast(u16)w;
-      apply_binary_op(emulator, bin_op, reg_loc, imm);
+      apply_binary_op(emulator, bin_op, reg_loc, xx,no_check imm);
 
     case .GRP_1_R;
       ip += 1;
@@ -577,39 +577,42 @@ get_sign :: (value: int, count: int) -> bool {
   return (count == 1 && (value & 0b10000000)) || (count == 2 && (value & 0b10000000_00000000));
 }
 
-apply_binary_op :: (using emulator: *Emulator, op: Binary_Op, dest: Location, value: s32) {
-  dest_val   := get_integer_value(dest, word = dest.count == 2, signed = false);
-  dest_sign  := get_sign(dest_val, dest.count);
-  value_sign := get_sign(value, dest.count);
+apply_binary_op :: (using emulator: *Emulator, op: Binary_Op, dest: Location, value: u16) {
+  dest_val: int = get_integer_value(dest, word = dest.count == 2, signed = false);
+  dest_sign    := get_sign(dest_val, dest.count);
+
+  src_val: int = value;
+  src_sign    := get_sign(value, dest.count);
+
   result: int;
-  update_common_flags: bool = false;
+  update_common_flags := false;
 
   if #complete op == {
     case .ADD;
-      result = dest_val + value;
+      result = dest_val + src_val;
       cf     = (result & (0b1_00000000_00000000)) != 0;
       update_common_flags = true;
     case .OR;
-      result = dest_val | value;
+      result = dest_val | src_val;
     case .ADC;
-      result = dest_val + value + (cast(int) cf);
+      result = dest_val + src_val + (cast(int) cf);
       cf     = (result & (0b1_00000000_00000000)) != 0;
       update_common_flags = true;
     case .SBB;
-      result = dest_val - value - (cast(int) cf);
-      cf     = value > dest_val;
+      result = dest_val - src_val - (cast(int) cf);
+      cf     = src_val > dest_val;
       update_common_flags = true;
     case .AND;
-      result = dest_val & value;
+      result = dest_val & src_val;
     case .SUB;
-      result = dest_val - value;
-      cf     = value > dest_val;
+      result = dest_val - src_val;
+      cf     = src_val > dest_val;
       update_common_flags = true;
     case .XOR;
-      result = dest_val ^ value;
+      result = dest_val ^ src_val;
     case .CMP;
-      result = dest_val - value;
-      cf     = value > dest_val;
+      result = dest_val - src_val;
+      cf     = src_val > dest_val;
       update_common_flags = true;
   }
 
@@ -619,7 +622,7 @@ apply_binary_op :: (using emulator: *Emulator, op: Binary_Op, dest: Location, va
   if update_common_flags {
     result_sign := get_sign(result, dest.count);
     sf = result_sign;
-    of = dest_sign == value_sign && result_sign != dest_sign;
+    of = dest_sign == src_sign && result_sign != dest_sign;
   }
 
   if op != .CMP {
@@ -628,8 +631,9 @@ apply_binary_op :: (using emulator: *Emulator, op: Binary_Op, dest: Location, va
 }
 
 apply_group_1_op :: (using emulator: *Emulator, op: Group_1_Op, arg: Location) {
-  arg_val  := get_integer_value(arg, word = arg.count == 2, signed = false);
-  arg_sign := get_sign(arg_val, arg.count);
+  arg_val: int = get_integer_value(arg, word = arg.count == 2, signed = false);
+  arg_sign    := get_sign(arg_val, arg.count);
+
   result: int;
   dest: Location;
   dest_val: int;
@@ -684,12 +688,14 @@ apply_group_1_op :: (using emulator: *Emulator, op: Group_1_Op, arg: Location) {
 }
 
 apply_inc_dec :: (using emulator: *Emulator, is_dec: bool, arg: Location) {
-  arg_val   := get_integer_value(arg, word = arg.count == 2, signed = false);
-  arg_sign  := get_sign(arg_val, arg.count);
+  arg_val: int = get_integer_value(arg, word = arg.count == 2, signed = false);
+  arg_sign    := get_sign(arg_val, arg.count);
+
   dest      := arg;
   dest_val  := arg_val;
   dest_sign := get_sign(dest_val, dest.count);
-  result: int;
+
+  result:  int;
 
   if is_dec {
     result = dest_val - 1;
