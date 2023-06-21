@@ -34,9 +34,9 @@ Sum_Type :: struct(value_types: ..Type) {
   //   float,  #code { /* ... */ },
   //   string, #code { /* ... */ },
   // );
-  // Inside each of the #code blocks will have declared a local called "it" that's a pointer of the type of the sum type's
-  // potential current value, in the order that you declared the types. The type arguments on the left do nothing other
-  // than to allow nagging that you've declared them in-order. I don't have a better solution at the time being.
+  // Inside each of the #code blocks will have declared a local called "it" that's a pointer of the type to the left of
+  // the code block. The type cases can be specified in any order, and you'll be nagged if you have a missing or
+  // duplicate case!
   #insert -> string {
     builder: String_Builder;
     init_string_builder(*builder);
@@ -49,14 +49,13 @@ Sum_Type :: struct(value_types: ..Type) {
     print_to_builder(*builder, ") #expand {\n");
 
     for value_types {
-      print_to_builder(*builder, "  #assert (type_% == type_of(sum.data.value_%))", it_index, it_index);
-      print_to_builder(*builder, "\"Type argument #% doesn't match the order the sum type was declared with! Expected `%`.\";\n", it_index+1, it);
+      print_to_builder(*builder, "  field_id_% :: #run check_type_in_sum(type_of(<<sum), type_%);\n", it_index, it_index);
     }
 
     print_to_builder(*builder, "  if #complete sum.tag == {\n");
     for 0..value_types.count-1 {
-      print_to_builder(*builder, "    case .TYPE_%;\n", it);
-      print_to_builder(*builder, "      it := *sum.data.value_%;\n", it);
+      print_to_builder(*builder, "    case #run cast(type_of(sum.tag)) field_id_%;\n", it);
+      print_to_builder(*builder, "      it := #insert #run tprint(\"*sum.data.value_%%;\", field_id_%);\n", it);
       print_to_builder(*builder, "      #insert,scope() code_%;\n", it);
     }
     print_to_builder(*builder, "  }\n");
@@ -124,15 +123,15 @@ operator == :: inline (sum: Sum_Type, value: $T) -> bool #symmetric {
 
 #import "Basic";
 
-type_field_in_sum :: ($sum_type: Type, value_type: Type) -> int {
-  sum_type_info   := cast(*Type_Info_Struct) sum_type;
-  value_type_info := cast(*Type_Info) value_type;
-
-  for (cast(*Type_Info_Struct) type_of(sum_type.{}.data)).members {
-    if it.type == value_type_info  return it_index; // @Hack: Hope they're in order declared?
+type_field_in_sum :: ($sum_type: Type, $value_type: Type) -> int {
+  result :: #run -> int {
+    for sum_type.value_types {
+      if it == value_type  return it_index;
+    }
+    return -1;
   }
 
-  return -1;
+  return result;
 }
 
 check_type_in_sum :: ($sum_type: Type, value_type: Type) -> int #expand {
