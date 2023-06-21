@@ -2,33 +2,13 @@
 #import "File";
 #import "Hash_Table";
 
+#load "Sum_Type.jai";
+
 Json :: struct {
   root: Json_Val;
 }
 
-Json_Val :: struct {
-  tag: enum u8 { OBJECT; ARRAY; LITERAL; };
-  union {
-    object:  *Json_Object;
-    array:   *Json_Array;
-    literal: *Json_Literal;
-  }
-}
-
-set :: (value: *Json_Val, object: *Json_Object) {
-  value.tag    = .OBJECT;
-  value.object = object;
-}
-
-set :: (value: *Json_Val, array: *Json_Array) {
-  value.tag   = .ARRAY;
-  value.array = array;
-}
-
-set :: (value: *Json_Val, literal: *Json_Literal) {
-  value.tag     = .LITERAL;
-  value.literal = literal;
-}
+Json_Val :: Sum_Type(*Json_Object, *Json_Array, *Json_Literal);
 
 Json_Object :: struct {
   fields: Table(string, Json_Val);
@@ -299,6 +279,7 @@ parse_json_value :: (tokens: [] Token) -> (val: Json_Val, new_tokens: [] Token, 
   if #complete tokens[0].type == {
     case .STRING_LITERAL;
       literal.kind = .STRING;
+      literal.value = slice(literal.value, 1, literal.value.count-2); // Trim off surrounding quotes
     case .NUMBER_LITERAL;
       literal.kind = .NUMBER;
     case .BOOLEAN_LITERAL;
@@ -337,6 +318,7 @@ parse_json_object :: (tokens: [] Token) -> (object: *Json_Object, new_tokens: []
     }
 
     field_name := new_tokens[0].text;
+    field_name = slice(field_name, 1, field_name.count-2); // Trim off surrounding quotes
     advance(*new_tokens);
 
     if new_tokens[0].text != ":" {
@@ -401,6 +383,121 @@ free_json :: (json: *Json) {
 
 }
 
+get :: inline (json: Json, path: ..Any) -> Json_Val {
+  return get(json.root, ..path);
+}
+
+get :: (val: Json_Val, path: ..Any) -> (result: Json_Val, success: bool) {
+  runner := val;
+  for path {
+    if it.type == type_info(int) {
+      array := isa(runner, *Json_Array);
+      if array == null {
+        log("Tried indexing into an array, but this JSON value is not an array!");
+        return .{}, false;
+      }
+
+      index := << cast(*int) it.value_pointer;
+      if index < 0 || index >= (<<array).array.count {
+        log("Index % is outside the bounds of this JSON array!", index);
+        return .{}, false;
+      }
+
+      runner = (<<array).array[index];
+    }
+    else if it.type == type_info(string) {
+      object := isa(runner, *Json_Object);
+      if object == null {
+        log("Tried looking up into an object, but this JSON value is not an object!");
+        return .{}, false;
+      }
+
+      index := << cast(*string) it.value_pointer;
+      field_value, success := table_find(*(<<object).fields, index);
+
+      if !success {
+        log("Tried looking up into an object, but the key given (\"%\") wasn't found!", field_value);
+        return .{}, false;
+      }
+
+      runner = field_value;
+    }
+    else {
+      log("Received a path argument of an invalid type!");
+      return .{}, false;
+    }
+  }
+
+  return runner, true;
+}
+
+read :: (val: Json_Val, $T: Type) -> (result: T, success: bool) {
+  Json_Val.match_one(*val,
+    *Json_Literal, #code {
+      result, success := read(<<it, `T);
+      `return result, success;
+    },
+    /* else */     #code {
+      log("Cannot read a value out of this JSON because it's not a primitive!");
+      `return default_value(`T), false;
+    }
+  );
+}
+
+read :: (val: Json_Literal, $T: Type) -> (result: T, success: bool) {
+  #if #run type_info(T).type == .INTEGER {
+    if val.kind != .NUMBER {
+      log("Tried to read an integer from the JSON, but this value isn't a number!");
+      return 0, false;
+    }
+    result, success := string_to_int(val.value, T = T);
+    if !success {
+      log("Failed to convert JSON value to an integer: `%`", val.value);
+    }
+    return result, success;
+  }
+  else #if T == float32 {
+    if val.kind != .FLOAT {
+      log("Tried to read a float32 from the JSON, but this value isn't a number!");
+      return 0, false;
+    }
+    result, success := string_to_float(val.value);
+    if !success {
+      log("Failed to convert JSON value to an float32: `%`", val.value);
+    }
+    return result, success;
+  }
+  else #if T == float64 {
+    if val.kind != .FLOAT {
+      log("Tried to read a float64 from the JSON, but this value isn't a number!");
+      return 0, false;
+    }
+    result, success := string_to_float64(val.value);
+    if !success {
+      log("Failed to convert JSON value to an float64: `%`", val.value);
+    }
+    return result, success;
+  }
+  else #if T == string {
+    if val.kind != .STRING {
+      log("Tried to read a string from the JSON, but this value isn't a string!");
+      return 0, false;
+    }
+    return val.value, true;
+  }
+  else #if T == bool {
+    if val.kind != .STRING {
+      log("Tried to read a bool from the JSON, but this value isn't a bool!");
+      return 0, false;
+    }
+    // Going to assume the lexer and parser are working correctly here...
+    return val.value == "true", true;
+  }
+  else {
+    #assert false "The type passed in is not supported!";
+  }
+}
+
 print_json :: (json: Json) {
   print_json_value(json.root);
   print("\n");
@@ -410,7 +507,7 @@ print_json_object :: (object: Json_Object, level: int = 0) {
   print("{\n");
   for object.fields {
     for 1..level+1  print("  ");
-    print("%: ", it_index);
+    print("\"%\": ", it_index);
     print_json_value(it, level+1);
     print(",\n");
   }
@@ -432,19 +529,26 @@ print_json_array :: (array: Json_Array, level: int = 0) {
 }
 
 print_json_value :: (value: Json_Val, level: int = 0) {
-  if #complete value.tag == {
-    case .OBJECT;
-      print_json_object(value.object, level);
-    case .ARRAY;
-      print_json_array(value.array, level);
-    case .LITERAL;
-      print(value.literal.value);
-  }
+  Json_Val.match(*value,
+    *Json_Object,  #code { print_json_object(<<it, `level); },
+    *Json_Array,   #code { print_json_array (<<it, `level); },
+    *Json_Literal, #code {
+      if (<<it).kind == .STRING {
+        print("\"%\"", (<<it).value);
+      }
+      else {
+        print((<<it).value);
+      }
+    },
+  );
 }
 
 #run {
   json, success := parse_json_string("{ \"wee\" : \"woo\", \"fee\": [3, 4] }");
   if success  print_json(json);
+
+  num := get(json, "fee", 1);
+  print("value: %\n", read(num, int));
 }
 
 main :: () {
@@ -484,6 +588,7 @@ slice :: (str: string, index: int) -> string {
   return result;
 }
 
+// Iterate over a string by code point (i.e. byte-by-byte).
 by_code_point :: (str: *string, body: Code, flags: For_Flags) #expand {
   array: [] u8 = ---;
   array.data  = cast(*u8) str.data;
@@ -492,4 +597,9 @@ by_code_point :: (str: *string, body: Code, flags: For_Flags) #expand {
   for <=cast(bool)(flags & .REVERSE), *=cast(bool)(flags & .POINTER) `it, `it_index: array {
     #insert body;
   }
+}
+
+default_value :: inline ($T: Type) -> T {
+  result: T;
+  return result;
 }
