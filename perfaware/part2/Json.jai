@@ -544,11 +544,19 @@ print_json_value :: (value: Json_Val, level: int = 0) {
 }
 
 #run {
-  json, success := parse_json_string("{ \"wee\" : \"woo\", \"fee\": [3, 4] }");
-  if success  print_json(json);
+  new_context := context;
+  new_context.allocator = temp;
+  push_context new_context {
+    auto_release_temp();
 
-  num := get(json, "fee", 1);
-  print("value: %\n", read(num, int));
+    json, success := parse_json_string("{ \"wee\" : \"woo\", \"fee\": [3, 4] }");
+    if success {
+      print_json(json);
+
+      num := get(json, "fee", 1);
+      print("value: %\n", read(num, int));
+    }
+  }
 }
 
 main :: () {
