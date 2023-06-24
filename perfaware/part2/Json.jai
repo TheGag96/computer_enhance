@@ -105,13 +105,18 @@ lex_json_string :: (text: string) -> (tokens: [] Token, success: bool) {
     else if is_digit(runner[0]) || runner[0] == #char "-" {
       literal_count := 0;
 
-      whole_part_count := 1;
-      for :by_code_point slice(runner, 1) {
-        if !is_digit(it) {
-          break;
+      count_numeral :: (str: string, start: int) -> int {
+        digit_count := 1; // Assume first character is validated already (may have been `-`)
+        for :by_code_point slice(str, start + 1) {
+          if !is_digit(it) {
+            break;
+          }
+          digit_count += 1;
         }
-        whole_part_count += 1;
+        return digit_count;
       }
+
+      whole_part_count := count_numeral(runner, literal_count); // First character could be `-`, which is okay
 
       if whole_part_count == 1 && runner[0] == #char "-" {
         lex_error("Expected a number literal, but we got just a negative sign.", line, column);
@@ -126,13 +131,7 @@ lex_json_string :: (text: string) -> (tokens: [] Token, success: bool) {
           lex_error("Number literals cannot end with a decimal point.", line, column + literal_count);
         }
 
-        fractional_part_count := 1;
-        for :by_code_point slice(runner, literal_count + 1) {
-          if !is_digit(it) {
-            break;
-          }
-          fractional_part_count += 1;
-        }
+        fractional_part_count := count_numeral(runner, literal_count);
         literal_count += fractional_part_count;
       }
 
@@ -143,13 +142,7 @@ lex_json_string :: (text: string) -> (tokens: [] Token, success: bool) {
           lex_error("Expected an integer after exponent marker `e` was specified in number literal.", line, column + literal_count);
         }
 
-        exponent_part_count := 1;
-        for :by_code_point slice(runner, literal_count + 1) {
-          if !is_digit(it) {
-            break;
-          }
-          exponent_part_count += 1;
-        }
+        exponent_part_count := count_numeral(runner, literal_count); // First character could be `-`, which is okay
 
         if exponent_part_count == 1 && runner[literal_count] == #char "-" {
           lex_error("Expected an integer exponent in number literal, but we got just a negative sign.", line, column + literal_count);
