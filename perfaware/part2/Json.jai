@@ -68,7 +68,7 @@ lex_json_string :: (text: string) -> (tokens: [] Token, success: bool) {
   line   := 1;
 
   lex_error :: ($format: string, args: ..Any) #expand {
-    log((#run tprint("JSON lex error (line %%, column %%): %", format)), ..args);
+    log((#run tprint("JSON lex error (line %%, column %%): %", format)), ..args, flags = .ERROR);
     `return Token.[], false;
   }
 
@@ -208,13 +208,13 @@ lex_json_string :: (text: string) -> (tokens: [] Token, success: bool) {
 //////////////////////////////
 
 parse_error :: (return_val: $T, $format: string, args: ..Any) #expand {
-  log((#run tprint("JSON parse error (line %%, column %%): %", format)), ..args);
+  log((#run tprint("JSON parse error (line %%, column %%): %", format)), ..args, flags = .ERROR);
   `return return_val, `tokens, false;
 }
 
 advance :: (tokens: *[] Token) #expand {
   if !tokens.count {
-    log("JSON parse error: Unexpectedly hit the end of the file! Unclosed from line %, column %", `eof_line, `eof_column);
+    log("JSON parse error: Unexpectedly hit the end of the file! Unclosed from line %, column %", `eof_line, `eof_column, flags = .ERROR);
     `return `error_return, .[], false;
   }
   <<tokens = array_view(<<tokens, 1);
@@ -222,7 +222,7 @@ advance :: (tokens: *[] Token) #expand {
 
 expect_more :: (tokens: [] Token) #expand {
   if !tokens.count {
-    log("JSON parse error: Unexpectedly hit the end of the file! Unclosed from line %, column %", `eof_line, `eof_column);
+    log("JSON parse error: Unexpectedly hit the end of the file! Unclosed from line %, column %", `eof_line, `eof_column, flags = .ERROR);
     `return `error_return, .[], false;
   }
 }
@@ -236,7 +236,7 @@ parse_json_string :: (text: string) -> (json: Json, success: bool) {
   root, new_tokens, success := parse_json_value(tokens);
 
   if success && new_tokens.count > 0 {
-    log("JSON parse error (line %, column %): Junk content still found after parsing!", new_tokens[0].line, new_tokens[0].column);
+    log("JSON parse error (line %, column %): Junk content still found after parsing!", new_tokens[0].line, new_tokens[0].column, flags = .ERROR);
     return result, false;
   }
 
@@ -383,6 +383,11 @@ free_json :: (json: *Json) {
 
 }
 
+usage_error :: (return_val: $T, $format: string, args: ..Any) #expand {
+  log((#run tprint("JSON error: %", format)), ..args, flags = .ERROR);
+  `return return_val, false;
+}
+
 get :: inline (json: Json, path: ..Any) -> Json_Val {
   return get(json.root, ..path);
 }
@@ -393,14 +398,12 @@ get :: (val: Json_Val, path: ..Any) -> (result: Json_Val, success: bool) {
     if it.type == type_info(int) {
       array := isa(runner, *Json_Array);
       if array == null {
-        log("Tried indexing into an array, but this JSON value is not an array!");
-        return .{}, false;
+        usage_error(Json_Val.{}, "Tried indexing into an array, but this JSON value is not an array!");
       }
 
       index := << cast(*int) it.value_pointer;
       if index < 0 || index >= (<<array).array.count {
-        log("Index % is outside the bounds of this JSON array!", index);
-        return .{}, false;
+        usage_error(Json_Val.{}, "Index % is outside the bounds of this JSON array!", index);
       }
 
       runner = (<<array).array[index];
@@ -408,23 +411,20 @@ get :: (val: Json_Val, path: ..Any) -> (result: Json_Val, success: bool) {
     else if it.type == type_info(string) {
       object := isa(runner, *Json_Object);
       if object == null {
-        log("Tried looking up into an object, but this JSON value is not an object!");
-        return .{}, false;
+        usage_error(Json_Val.{}, "Tried looking up into an object, but this JSON value is not an object!");
       }
 
       index := << cast(*string) it.value_pointer;
       field_value, success := table_find(*(<<object).fields, index);
 
       if !success {
-        log("Tried looking up into an object, but the key given (\"%\") wasn't found!", field_value);
-        return .{}, false;
+        usage_error(Json_Val.{}, "Tried looking up into an object, but the key given (\"%\") wasn't found!", field_value);
       }
 
       runner = field_value;
     }
     else {
-      log("Received a path argument of an invalid type!");
-      return .{}, false;
+      usage_error(Json_Val.{}, "Received a path argument of an invalid type!");
     }
   }
 
@@ -438,8 +438,7 @@ read :: (val: Json_Val, $T: Type) -> (result: T, success: bool) {
       `return result, success;
     },
     /* else */     #code {
-      log("Cannot read a value out of this JSON because it's not a primitive!");
-      `return default_value(`T), false;
+      usage_error(default_value(`T), "Cannot read a value out of this JSON because it's not a primitive!");
     }
   );
 }
@@ -447,48 +446,43 @@ read :: (val: Json_Val, $T: Type) -> (result: T, success: bool) {
 read :: (val: Json_Literal, $T: Type) -> (result: T, success: bool) {
   #if #run type_info(T).type == .INTEGER {
     if val.kind != .NUMBER {
-      log("Tried to read an integer from the JSON, but this value isn't a number!");
-      return 0, false;
+      usage_error(default_value(T), "Tried to read an integer from the JSON, but this value isn't a number!");
     }
     result, success := string_to_int(val.value, T = T);
     if !success {
-      log("Failed to convert JSON value to an integer: `%`", val.value);
+      usage_error(default_value(T), "Failed to convert JSON value to an integer: `%`", val.value);
     }
     return result, success;
   }
   else #if T == float32 {
     if val.kind != .FLOAT {
-      log("Tried to read a float32 from the JSON, but this value isn't a number!");
-      return 0, false;
+      usage_error(default_value(T), "Tried to read a float32 from the JSON, but this value isn't a number!");
     }
     result, success := string_to_float(val.value);
     if !success {
-      log("Failed to convert JSON value to an float32: `%`", val.value);
+      usage_error(default_value(T), "Failed to convert JSON value to an float32: `%`", val.value);
     }
     return result, success;
   }
   else #if T == float64 {
     if val.kind != .FLOAT {
-      log("Tried to read a float64 from the JSON, but this value isn't a number!");
-      return 0, false;
+      usage_error(default_value(T), "Tried to read a float64 from the JSON, but this value isn't a number!");
     }
     result, success := string_to_float64(val.value);
     if !success {
-      log("Failed to convert JSON value to an float64: `%`", val.value);
+      usage_error(default_value(T), "Failed to convert JSON value to an float64: `%`", val.value);
     }
     return result, success;
   }
   else #if T == string {
     if val.kind != .STRING {
-      log("Tried to read a string from the JSON, but this value isn't a string!");
-      return 0, false;
+      usage_error(default_value(T), "Tried to read a string from the JSON, but this value isn't a string!");
     }
     return val.value, true;
   }
   else #if T == bool {
     if val.kind != .STRING {
-      log("Tried to read a bool from the JSON, but this value isn't a bool!");
-      return 0, false;
+      usage_error(default_value(T), "Tried to read a bool from the JSON, but this value isn't a bool!");
     }
     // Going to assume the lexer and parser are working correctly here...
     return val.value == "true", true;
