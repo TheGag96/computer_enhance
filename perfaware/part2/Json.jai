@@ -381,8 +381,9 @@ usage_error :: (return_val: $T, $format: string, args: ..Any) #expand {
   `return return_val, false;
 }
 
-get :: inline (json: Json, path: ..Any) -> Json_Val {
-  return get(json.root, ..path);
+get :: inline (json: Json, path: ..Any) -> (result: Json_Val, success: bool) {
+  result, success := get(json.root, ..path);
+  return result, success;
 }
 
 get :: (val: Json_Val, path: ..Any) -> (result: Json_Val, success: bool) {
@@ -448,7 +449,7 @@ read :: (val: Json_Literal, $T: Type) -> (result: T, success: bool) {
     return result, success;
   }
   else #if T == float32 {
-    if val.kind != .FLOAT {
+    if val.kind != .NUMBER {
       usage_error(default_value(T), "Tried to read a float32 from the JSON, but this value isn't a number!");
     }
     result, success := string_to_float(val.value);
@@ -458,7 +459,7 @@ read :: (val: Json_Literal, $T: Type) -> (result: T, success: bool) {
     return result, success;
   }
   else #if T == float64 {
-    if val.kind != .FLOAT {
+    if val.kind != .NUMBER {
       usage_error(default_value(T), "Tried to read a float64 from the JSON, but this value isn't a number!");
     }
     result, success := string_to_float64(val.value);
@@ -530,7 +531,7 @@ print_json_value :: (value: Json_Val, level: int = 0) {
   );
 }
 
-#run {
+/* #run {
   new_context := context;
   new_context.allocator = temp;
   push_context new_context {
@@ -544,11 +545,8 @@ print_json_value :: (value: Json_Val, level: int = 0) {
       print("value: %\n", read(num, int));
     }
   }
-}
+} */
 
-main :: () {
-  
-}
 
 ////////////////////////
 
