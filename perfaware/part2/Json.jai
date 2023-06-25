@@ -44,12 +44,26 @@ Token :: struct {
   type: Token_Type;
   #as text: string;
   line, column: int;
+
+  next: *Token;
 }
 
+token_add :: inline (tail: **Token, new_token: Token) {
+  // Assuming the tail's next pointer is null here!
 
-lex_json_string :: (text: string) -> (tokens: [] Token, success: bool) {
+  (<<tail).next   = New(Token, initialized = false);
+  <<(<<tail).next = new_token;
+  <<tail          = (<<tail).next;
+}
+
+lex_json_string :: (text: string) -> (tokens: *Token, success: bool) {
   runner := text;
-  result: [..] Token;
+
+  // Head lives on the stack so I have an easy way to refer to the head which I can immediately add to but use its next
+  // pointer to get the "real" head of the list when we're done. Spooky, because we're mixing allocators in this data
+  // structure temporarily!
+  head: Token;
+  tail := *head;
 
   WHITESPACE_CHARS :: " \t\n\r";  // @Note: doesn't include unicode whitespace
 
@@ -69,12 +83,12 @@ lex_json_string :: (text: string) -> (tokens: [] Token, success: bool) {
 
   lex_error :: ($format: string, args: ..Any) #expand {
     log((#run tprint("JSON lex error (line %%, column %%): %", format)), ..args, flags = .ERROR);
-    `return Token.[], false;
+    `return null, false;
   }
 
   while runner.count {
     if char_in_string(runner[0], "{}[],:") {
-      array_add(*result, Token.{.PUNCTUATION, slice(runner, 0, 1), line, column});
+      token_add(*tail, Token.{.PUNCTUATION, slice(runner, 0, 1), line, column, null});
       column += 1;
       runner = slice(runner, 1);
     }
@@ -99,7 +113,7 @@ lex_json_string :: (text: string) -> (tokens: [] Token, success: bool) {
 
       string_literal := slice(runner, 0, closing_quote_index + 1);
       column += string_literal.count;
-      array_add(*result, Token.{.STRING_LITERAL, string_literal, line, column});
+      token_add(*tail, Token.{.STRING_LITERAL, string_literal, line, column, null});
       runner = slice(runner, string_literal.count);
     }
     else if is_digit(runner[0]) || runner[0] == #char "-" {
@@ -151,7 +165,7 @@ lex_json_string :: (text: string) -> (tokens: [] Token, success: bool) {
       }
 
       column += literal_count;
-      array_add(*result, Token.{.NUMBER_LITERAL, slice(runner, 0, literal_count), line, column});
+      token_add(*tail, Token.{.NUMBER_LITERAL, slice(runner, 0, literal_count), line, column, null});
       runner = slice(runner, literal_count);
     }
     else if runner[0] >= #char "a" && runner[0] <= #char "z" {
@@ -167,10 +181,10 @@ lex_json_string :: (text: string) -> (tokens: [] Token, success: bool) {
       word := slice(runner, 0, first_non_letter_index);
       column += word.count;
       if word == "null" {
-        array_add(*result, Token.{.NULL_LITERAL, word, line, column});
+        token_add(*tail, Token.{.NULL_LITERAL, word, line, column, null});
       }
       else if word == "true" || word == "false" {
-        array_add(*result, Token.{.BOOLEAN_LITERAL, word, line, column});
+        token_add(*tail, Token.{.BOOLEAN_LITERAL, word, line, column, null});
       }
       else {
         lex_error("Unexpected word found: %", line, column, word);
@@ -195,7 +209,8 @@ lex_json_string :: (text: string) -> (tokens: [] Token, success: bool) {
     }
   }
 
-  return result, true;
+  // head.next gets us the "real" head, not the one pointing to the stack!
+  return head.next, true;
 }
 
 //////////////////////////////
@@ -205,18 +220,18 @@ parse_error :: (return_val: $T, $format: string, args: ..Any) #expand {
   `return return_val, `tokens, false;
 }
 
-advance :: (tokens: *[] Token) #expand {
-  if !tokens.count {
+advance :: (tokens: **Token) #expand {
+  if !<<tokens {
     log("JSON parse error: Unexpectedly hit the end of the file! Unclosed from line %, column %", `eof_line, `eof_column, flags = .ERROR);
-    `return `error_return, .[], false;
+    `return `error_return, null, false;
   }
-  <<tokens = array_view(<<tokens, 1);
+  <<tokens = (<<tokens).next;
 }
 
-expect_more :: (tokens: [] Token) #expand {
-  if !tokens.count {
+expect_more :: (tokens: *Token) #expand {
+  if !tokens {
     log("JSON parse error: Unexpectedly hit the end of the file! Unclosed from line %, column %", `eof_line, `eof_column, flags = .ERROR);
-    `return `error_return, .[], false;
+    `return `error_return, null, false;
   }
 }
 
@@ -228,8 +243,8 @@ parse_json_string :: (text: string) -> (json: Json, success: bool) {
 
   root, new_tokens, success := parse_json_value(tokens);
 
-  if success && new_tokens.count > 0 {
-    log("JSON parse error (line %, column %): Junk content still found after parsing!", new_tokens[0].line, new_tokens[0].column, flags = .ERROR);
+  if success && new_tokens {
+    log("JSON parse error (line %, column %): Junk content still found after parsing!", new_tokens.line, new_tokens.column, flags = .ERROR);
     return result, false;
   }
 
@@ -238,38 +253,38 @@ parse_json_string :: (text: string) -> (json: Json, success: bool) {
   return result, success;
 }
 
-parse_json_value :: (tokens: [] Token) -> (val: Json_Val, new_tokens: [] Token, success: bool) {
+parse_json_value :: (tokens: *Token) -> (val: Json_Val, new_tokens: *Token, success: bool) {
   error_return :: Json_Val.{};
   eof_line, eof_column := tokens[0].line, tokens[0].column;
 
-  if tokens.count == 0 {
+  if !tokens {
     parse_error(Json_Val.{}, "Expected JSON value, but there's nothing left to parse!", 0, 0);
   }
 
   result: Json_Val;
   new_tokens := tokens;
 
-  if tokens[0].text == "{" {
+  if tokens.text == "{" {
     object, object_tokens, object_success := parse_json_object(tokens);
     new_tokens = object_tokens;
     set(*result, object);
     return result, new_tokens, object_success;
   }
-  else if tokens[0].text == "[" {
+  else if tokens.text == "[" {
     array, array_tokens, array_success := parse_json_array(tokens);
     new_tokens = array_tokens;
     set(*result, array);
     return result, array_tokens, array_success;
   }
 
-  if tokens[0].type == .PUNCTUATION {
-    parse_error(Json_Val.{}, "Expected JSON value, but found `%`", tokens[0].line, tokens[0].column, tokens[0].text);
+  if tokens.type == .PUNCTUATION {
+    parse_error(Json_Val.{}, "Expected JSON value, but found `%`", tokens.line, tokens.column, tokens.text);
   }
 
   // must be a literal...
   literal := New(Json_Literal);
-  literal.value = tokens[0].text;
-  if #complete tokens[0].type == {
+  literal.value = tokens.text;
+  if #complete tokens.type == {
     case .STRING_LITERAL;
       literal.kind = .STRING;
       literal.value = slice(literal.value, 1, literal.value.count-2); // Trim off surrounding quotes
@@ -290,32 +305,32 @@ parse_json_value :: (tokens: [] Token) -> (val: Json_Val, new_tokens: [] Token, 
   return result, new_tokens, true;
 }
 
-parse_json_object :: (tokens: [] Token) -> (object: *Json_Object, new_tokens: [] Token, success: bool) {
+parse_json_object :: (tokens: *Token) -> (object: *Json_Object, new_tokens: *Token, success: bool) {
   // Assumed to have already seen the "{" by the time we get in here
   error_return :: cast(*Json_Object)null;
-  eof_line, eof_column := tokens[0].line, tokens[0].column;
+  eof_line, eof_column := tokens.line, tokens.column;
 
   new_tokens := tokens;
   advance(*new_tokens);
 
-  if new_tokens.count == 0 {
+  if !new_tokens {
     parse_error(cast(*Json_Object)null, "Expected the body of a JSON object, but there's nothing left to parse!", 0, 0);
   }
 
   result := New(Json_Object);
   init(*result.fields);
 
-  while new_tokens.count && new_tokens[0].text != "}" {
-    if new_tokens[0].type != .STRING_LITERAL {
-      parse_error(cast(*Json_Object)null, "Expected a string literal as the field name for an object, but instead found `%`!", new_tokens[0].line, new_tokens[0].column, new_tokens[0].text);
+  while new_tokens && new_tokens.text != "}" {
+    if new_tokens.type != .STRING_LITERAL {
+      parse_error(cast(*Json_Object)null, "Expected a string literal as the field name for an object, but instead found `%`!", new_tokens.line, new_tokens.column, new_tokens.text);
     }
 
-    field_name := new_tokens[0].text;
+    field_name := new_tokens.text;
     field_name = slice(field_name, 1, field_name.count-2); // Trim off surrounding quotes
     advance(*new_tokens);
 
-    if new_tokens[0].text != ":" {
-      parse_error(cast(*Json_Object)null, "Expected `:` after object field name, but instead found `%`!", new_tokens[0].line, new_tokens[0].column, new_tokens[0].text);
+    if new_tokens.text != ":" {
+      parse_error(cast(*Json_Object)null, "Expected `:` after object field name, but instead found `%`!", new_tokens.line, new_tokens.column, new_tokens.text);
     }
     advance(*new_tokens);
 
@@ -325,10 +340,10 @@ parse_json_object :: (tokens: [] Token) -> (object: *Json_Object, new_tokens: []
     expect_more(new_tokens);
 
     // Note that this logic allows trailing commas, which I think isn't standards compliant (?), but I don't care!
-    if new_tokens[0].text != "," && new_tokens[0].text != "}" {
-      parse_error(cast(*Json_Object)null, "Expected `,` or `}` after object field value, but instead found `%`!", new_tokens[0].line, new_tokens[0].column, new_tokens[0].text);
+    if new_tokens.text != "," && new_tokens.text != "}" {
+      parse_error(cast(*Json_Object)null, "Expected `,` or `}` after object field value, but instead found `%`!", new_tokens.line, new_tokens.column, new_tokens.text);
     }
-    if new_tokens[0].text == ","  advance(*new_tokens);
+    if new_tokens.text == ","  advance(*new_tokens);
 
     table_add(*result.fields, field_name, field_value);
   }
@@ -337,22 +352,22 @@ parse_json_object :: (tokens: [] Token) -> (object: *Json_Object, new_tokens: []
   return result, new_tokens, true;
 }
 
-parse_json_array :: (tokens: [] Token) -> (array: *Json_Array, new_tokens: [] Token, success: bool) {
+parse_json_array :: (tokens: *Token) -> (array: *Json_Array, new_tokens: *Token, success: bool) {
   // Assumed to have already seen the "[" by the time we get in here
   error_return :: cast(*Json_Array)null;
-  eof_line, eof_column := tokens[0].line, tokens[0].column;
+  eof_line, eof_column := tokens.line, tokens.column;
 
   new_tokens := tokens;
   advance(*new_tokens);
 
-  if new_tokens.count == 0 {
+  if !new_tokens {
     parse_error(cast(*Json_Array)null, "Expected the body of an array, but there's nothing left to parse!", 0, 0);
   }
 
   result := New(Json_Array);
   members: [..] Json_Val;
 
-  while new_tokens.count && new_tokens[0].text != "]" {
+  while new_tokens && new_tokens.text != "]" {
     // @TODO: need to handle end-of-file errors here
     member_value, member_tokens, member_success := parse_json_value(new_tokens);
     if !member_success return result, member_tokens, false;
@@ -361,10 +376,10 @@ parse_json_array :: (tokens: [] Token) -> (array: *Json_Array, new_tokens: [] To
     array_add(*members, member_value);
 
     // Note that this logic allows trailing commas, which I think isn't standards compliant (?), but I don't care!
-    if new_tokens[0].text != "," && new_tokens[0].text != "]" {
-      parse_error(cast(*Json_Array)null, "Expected `,` or `]` after array member, but instead found `%`!", new_tokens[0].line, new_tokens[0].column, new_tokens[0].text);
+    if new_tokens.text != "," && new_tokens.text != "]" {
+      parse_error(cast(*Json_Array)null, "Expected `,` or `]` after array member, but instead found `%`!", new_tokens.line, new_tokens.column, new_tokens.text);
     }
-    if new_tokens[0].text == ","  advance(*new_tokens);
+    if new_tokens.text == ","  advance(*new_tokens);
   }
   advance(*new_tokens);
 
