@@ -345,6 +345,8 @@ parse_json_object :: (tokens: *Token) -> (object: *Json_Object, new_tokens: *Tok
     }
     if new_tokens.text == ","  advance(*new_tokens);
 
+    // @Memory: If the current allocator is an arena (e.g. temp), if the table grows, its old memory will just stick
+    // around as junk. This sucks and should be changed!
     table_add(*result.fields, field_name, field_value);
   }
   advance(*new_tokens);
@@ -373,6 +375,9 @@ parse_json_array :: (tokens: *Token) -> (array: *Json_Array, new_tokens: *Token,
     if !member_success return result, member_tokens, false;
     new_tokens = member_tokens;
     expect_more(new_tokens);
+
+    // @Memory: If the current allocator is an arena (e.g. temp), if the array grows, its old memory will just stick
+    // around as junk. This sucks and should be changed!
     array_add(*members, member_value);
 
     // Note that this logic allows trailing commas, which I think isn't standards compliant (?), but I don't care!
