@@ -16,6 +16,10 @@
 
 #import "Math";
 
+Point_Pair :: struct {
+  x0, y0, x1, y1: float64;
+}
+
 square :: (a: float64) -> float64 {
   result: float64 = (a*a);
   return result;
@@ -27,7 +31,9 @@ radians_from_degrees :: (degrees: float64) -> float64 {
 }
 
 // NOTE(casey): earth_radius is generally expected to be 6372.8
-reference_haversine :: (x0: float64, y0: float64, x1: float64, y1: float64, earth_radius: float64) -> float64 {
+EARTH_RADIUS :: 6372.8;
+
+reference_haversine :: (using pair: Point_Pair, earth_radius: float64) -> float64 {
   /* NOTE(casey): This is not meant to be a "good" way to calculate the Haversine distance.
      Instead, it attempts to follow, as closely as possible, the formula used in the real-world
      question on which these homework exercises are loosely based.
