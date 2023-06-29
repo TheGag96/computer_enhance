@@ -43,21 +43,25 @@ main :: () {
     cluster_radius := random_get_within_range(CLUSTER_RADIUS_MIN, CLUSTER_RADIUS_MAX);
     num_in_cluster := num_pairs / NUM_CLUSTERS;
 
-    for 1..num_in_cluster {
-      random_point_in_circle :: (radius: float) -> x: float, y: float {
-        x := radius;
-        y := radius;
+    if it == NUM_CLUSTERS {
+      num_in_cluster += num_pairs % NUM_CLUSTERS;
+    }
 
-        while x*x + y*y > radius * radius {
-          x = random_get_within_range(-radius, radius);
-          y = random_get_within_range(-radius, radius);
-        }
+    for 1..num_in_cluster {
+      random_point_on_sphere :: (center_lat: float, center_lon: float, radius: float) -> x: float, y: float {
+        x := random_get_within_range(center_lon-radius, center_lon+radius);
+        y := random_get_within_range(center_lat-radius, center_lat+radius);
+
+        if y < LATITUDE_MIN   y += (LATITUDE_MAX  - LATITUDE_MIN);
+        if y > LATITUDE_MAX   y -= (LATITUDE_MAX  - LATITUDE_MIN);
+        if x < LONGITUDE_MIN  x += (LONGITUDE_MAX - LONGITUDE_MIN);
+        if x > LONGITUDE_MAX  x -= (LONGITUDE_MAX - LONGITUDE_MIN);
 
         return x, y;
       }
 
-      x0, y0 := random_point_in_circle(cluster_radius);
-      x1, y1 := random_point_in_circle(cluster_radius);
+      x0, y0 := random_point_on_sphere(cluster_lat, cluster_lon, cluster_radius);
+      x1, y1 := random_point_on_sphere(cluster_lat, cluster_lon, cluster_radius);
 
       log("  { \"x0\": %, \"y0\": %, \"x1\": %, \"y1\": % }, ", x0, y0, x1, y1);
     }
