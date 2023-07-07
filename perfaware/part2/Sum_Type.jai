@@ -49,7 +49,7 @@ Sum_Type :: struct(value_types: ..Type) {
     print_to_builder(*builder, ") #expand {\n");
 
     for value_types {
-      print_to_builder(*builder, "  field_id_% :: #run check_type_in_sum(type_of(<<sum), type_%);\n", it_index, it_index);
+      print_to_builder(*builder, "  field_id_% :: #run check_type_in_sum(type_of(sum.*), type_%);\n", it_index, it_index);
     }
 
     print_to_builder(*builder, "  if #complete sum.tag == {\n");
@@ -76,7 +76,7 @@ Sum_Type :: struct(value_types: ..Type) {
   // be added to the sum type down the road. The "else" case will have declared "it" that's a pointer to the current
   // value's type.
   match_one :: (sum: *Sum_Type, $type: Type, type_case: Code, else_case: Code) #expand {
-    field_id :: #run check_type_in_sum(type_of(<<sum), type);
+    field_id :: #run check_type_in_sum(type_of(sum.*), type);
 
     // @CompileSpeed: This must necessarily generate new code on every invocation. Is this bad?
     #insert -> string {
@@ -102,7 +102,7 @@ Sum_Type :: struct(value_types: ..Type) {
 }
 
 set :: inline (sum: *Sum_Type, value: $T) {
-  field_id :: #run check_type_in_sum(type_of(<<sum), T);
+  field_id :: #run check_type_in_sum(type_of(sum.*), T);
 
   #insert #run tprint("sum.tag = .TYPE_%; sum.data.value_% = value;", field_id, field_id);
 }

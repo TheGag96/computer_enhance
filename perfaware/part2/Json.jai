@@ -51,9 +51,9 @@ Token :: struct {
 token_add :: inline (tail: **Token, new_token: Token) {
   // Assuming the tail's next pointer is null here!
 
-  (<<tail).next   = New(Token, initialized = false);
-  <<(<<tail).next = new_token;
-  <<tail          = (<<tail).next;
+  tail.*.next   = New(Token, initialized = false);
+  tail.*.next.* = new_token;
+  tail.*        = tail.*.next;
 }
 
 lex_json_string :: (text: string) -> (tokens: *Token, success: bool) {
@@ -221,11 +221,11 @@ parse_error :: (return_val: $T, $format: string, args: ..Any) #expand {
 }
 
 advance :: (tokens: **Token) #expand {
-  if !<<tokens {
+  if !tokens.* {
     log("JSON parse error: Unexpectedly hit the end of the file! Unclosed from line %, column %", `eof_line, `eof_column, flags = .ERROR);
     `return `error_return, null, false;
   }
-  <<tokens = (<<tokens).next;
+  tokens.* = tokens.*.next;
 }
 
 expect_more :: (tokens: *Token) #expand {
@@ -415,12 +415,12 @@ get :: (val: Json_Val, path: ..Any) -> (result: Json_Val, success: bool) {
         usage_error(Json_Val.{}, "Tried indexing into an array, but this JSON value is not an array!");
       }
 
-      index := << cast(*int) it.value_pointer;
-      if index < 0 || index >= (<<array).array.count {
+      index := (cast(*int) it.value_pointer).*;
+      if index < 0 || index >= array.*.array.count {
         usage_error(Json_Val.{}, "Index % is outside the bounds of this JSON array!", index);
       }
 
-      runner = (<<array).array[index];
+      runner = array.*.array[index];
     }
     else if it.type == type_info(string) {
       object := isa(runner, *Json_Object);
@@ -428,8 +428,8 @@ get :: (val: Json_Val, path: ..Any) -> (result: Json_Val, success: bool) {
         usage_error(Json_Val.{}, "Tried looking up into an object, but this JSON value is not an object!");
       }
 
-      index := << cast(*string) it.value_pointer;
-      field_value, success := table_find(*(<<object).fields, index);
+      index := (cast(*string) it.value_pointer).*;
+      field_value, success := table_find(*object.*.fields, index);
 
       if !success {
         usage_error(Json_Val.{}, "Tried looking up into an object, but the key given (\"%\") wasn't found!", field_value);
@@ -448,7 +448,7 @@ get :: (val: Json_Val, path: ..Any) -> (result: Json_Val, success: bool) {
 read :: (val: Json_Val, $T: Type) -> (result: T, success: bool) {
   Json_Val.match_one(*val,
     *Json_Literal, #code {
-      result, success := read(<<it, `T);
+      result, success := read(it.*, `T);
       `return result, success;
     },
     /* else */     #code {
@@ -538,14 +538,14 @@ print_json_array :: (array: Json_Array, level: int = 0) {
 
 print_json_value :: (value: Json_Val, level: int = 0) {
   Json_Val.match(*value,
-    *Json_Object,  #code { print_json_object(<<it, `level); },
-    *Json_Array,   #code { print_json_array (<<it, `level); },
+    *Json_Object,  #code { print_json_object(it.*, `level); },
+    *Json_Array,   #code { print_json_array (it.*, `level); },
     *Json_Literal, #code {
-      if (<<it).kind == .STRING {
-        print("\"%\"", (<<it).value);
+      if it.*.kind == .STRING {
+        print("\"%\"", it.*.value);
       }
       else {
-        print((<<it).value);
+        print(it.*.value);
       }
     },
   );

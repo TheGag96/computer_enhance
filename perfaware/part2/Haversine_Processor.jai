@@ -47,9 +47,9 @@ main :: () {
 
     pairs := get(*json, "pairs");
     pairs_array := isa(pairs, *Json_Array);
-    array_resize(*extracted_pairs, (<<pairs_array).array.count, initialize = false);
+    array_resize(*extracted_pairs, pairs_array.*.array.count, initialize = false);
 
-    for (<<pairs_array).array {
+    for pairs_array.*.array {
       extracted_pairs[it_index].x0 = read(get(it, "x0"), float64);
       extracted_pairs[it_index].y0 = read(get(it, "y0"), float64);
       extracted_pairs[it_index].x1 = read(get(it, "x1"), float64);
@@ -77,7 +77,7 @@ main :: () {
     if answers_filename.count {
       answer_bytes := read_entire_file(answers_filename);
       assert(answer_bytes.count == size_of(float64));
-      answer := <<(cast(*float64) answer_bytes.data);
+      answer := (cast(*float64) answer_bytes.data).*;
 
       log("\nValidation:");
       log("Reference sum: %", answer);

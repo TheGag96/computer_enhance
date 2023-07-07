@@ -17,7 +17,7 @@ begin_profile :: () {
   g_profiling_start_time = rdtsc();
 
   for * g_timer_info {
-    <<it = Timer_Data.{};
+    it.* = Timer_Data.{};
   }
 }
 
