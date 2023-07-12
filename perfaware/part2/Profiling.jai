@@ -22,11 +22,7 @@ begin_profile :: () {
 }
 
 time_function :: () #expand {
-  this_timer_index :: #run -> int {
-    result := ct_timer_count;
-    ct_timer_count += 1;
-    return result;
-  }
+  this_timer_index :: #run unique_timer_index(#procedure_name());
 
   parent_index      := g_profiler_parent;
   g_profiler_parent  = this_timer_index;
@@ -57,11 +53,7 @@ time_function :: () #expand {
 }
 
 time_block :: ($name: string) #expand {
-  this_timer_index :: #run -> int {
-    result := ct_timer_count;
-    ct_timer_count += 1;
-    return result;
-  }
+  this_timer_index :: #run unique_timer_index(name);
 
   parent_index      := g_profiler_parent;
   g_profiler_parent  = this_timer_index;
@@ -89,6 +81,14 @@ time_block :: ($name: string) #expand {
     g_profiler_parent             = parent_index;
     timer_data.hit_count         += 1;
   }
+}
+
+unique_timer_index :: ($name: string) -> int {
+  return #run -> int {
+    result := ct_timer_count;
+    ct_timer_count += 1;
+    return result;
+  };
 }
 
 end_profile_and_log :: () {
