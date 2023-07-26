@@ -85,8 +85,18 @@ end_profile_and_log :: () {
   profiling_end_time := rdtsc();
   total_time         := profiling_end_time - g_profiling_start_time;
 
-  log("Timing info:");
-  log("Total time: %", total_time);
+  // Estimate CPU frequency
+  cpu_freq_estimated := () -> int {
+    ESTIMATION_TIME :: #run milliseconds_to_apollo(100);
+    estimation_start_cycles := rdtsc();
+    estimation_start_apollo := current_time_monotonic();
+    while current_time_monotonic() < estimation_start_apollo + ESTIMATION_TIME {}
+    estimation_end_cycles   := rdtsc();
+    return cast(int) ((estimation_end_cycles - estimation_start_cycles) / to_float64_seconds(ESTIMATION_TIME));
+  }();
+
+  log("Timing info (CPU freq = % Hz):", cpu_freq_estimated);
+  log("Total time: % ms (% cycles)", 1000.0*total_time/cpu_freq_estimated, total_time);
 
   percent_sum: float64 = 0;
   for * g_timer_info {
