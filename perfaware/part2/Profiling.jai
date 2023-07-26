@@ -2,7 +2,8 @@
 ct_timer_count := 1;
 
 Timer_Data :: struct {
-  elapsed, elapsed_children, elapsed_at_root: u64;
+  elapsed_exclusive: u64;  // Excludes time spent in children
+  elapsed_inclusive: u64;  // Includes time spent in children
   hit_count: u64;
   name: string;
 }
@@ -23,23 +24,23 @@ begin_profile :: () {
 time_function :: () #expand {
   this_timer_index :: #run unique_timer_index(#procedure_name());
 
-  parent_index        := g_profiler_parent;
-  g_profiler_parent    = this_timer_index;
-  timer_data          := *g_timer_info[this_timer_index];
-  old_elapsed_at_root := timer_data.elapsed_at_root;
-  timer_data.name      = #procedure_name();
-  start               := rdtsc();
+  parent_index          := g_profiler_parent;
+  g_profiler_parent      = this_timer_index;
+  timer_data            := *g_timer_info[this_timer_index];
+  old_elapsed_inclusive := timer_data.elapsed_inclusive;
+  timer_data.name        = #procedure_name();
+  start                 := rdtsc();
 
   `defer {
     end := rdtsc();
     elapsed                  := end - start;
 
-    timer_data.elapsed        += elapsed;
-    timer_data.elapsed_at_root = old_elapsed_at_root + elapsed;
+    timer_data.elapsed_exclusive += elapsed;
+    timer_data.elapsed_inclusive  = old_elapsed_inclusive + elapsed;
 
-    // Track for the parent/outer timer being tracked how much time elapsed here so we can subtract it off later
-    // This solves elapsed time being doubly counted when running one timer inside another.
-    g_timer_info[parent_index].elapsed_children += elapsed;
+    // For the parent block, subtract off in place the time we spent inside the inner block.
+    // This solves elapsed time being doubly counted across two timers when running one timer inside another.
+    g_timer_info[parent_index].elapsed_exclusive -= elapsed;
 
     g_profiler_parent             = parent_index;
     timer_data.hit_count         += 1;
@@ -49,23 +50,23 @@ time_function :: () #expand {
 time_block :: ($name: string) #expand {
   this_timer_index :: #run unique_timer_index(name);
 
-  parent_index        := g_profiler_parent;
-  g_profiler_parent    = this_timer_index;
-  timer_data          := *g_timer_info[this_timer_index];
-  old_elapsed_at_root := timer_data.elapsed_at_root;
-  timer_data.name      = name;
-  start               := rdtsc();
+  parent_index          := g_profiler_parent;
+  g_profiler_parent      = this_timer_index;
+  timer_data            := *g_timer_info[this_timer_index];
+  old_elapsed_inclusive := timer_data.elapsed_inclusive;
+  timer_data.name        = name;
+  start                 := rdtsc();
 
   `defer {
     end := rdtsc();
     elapsed                  := end - start;
 
-    timer_data.elapsed        += elapsed;
-    timer_data.elapsed_at_root = old_elapsed_at_root + elapsed;
+    timer_data.elapsed_exclusive += elapsed;
+    timer_data.elapsed_inclusive  = old_elapsed_inclusive + elapsed;
 
-    // Track for the parent/outer timer being tracked how much time elapsed here so we can subtract it off later
-    // This solves elapsed time being doubly counted when running one timer inside another.
-    g_timer_info[parent_index].elapsed_children += elapsed;
+    // For the parent block, subtract off in place the time we spent inside the inner block.
+    // This solves elapsed time being doubly counted across two timers when running one timer inside another.
+    g_timer_info[parent_index].elapsed_exclusive -= elapsed;
 
     g_profiler_parent             = parent_index;
     timer_data.hit_count         += 1;
@@ -90,15 +91,14 @@ end_profile_and_log :: () {
   percent_sum: float64 = 0;
   for * g_timer_info {
     if !it.name.count  continue;
-    real_elapsed := it.elapsed - it.elapsed_children;
-    percent      := (cast(float64)real_elapsed)/total_time * 100;
+    percent      := (cast(float64)it.elapsed_exclusive)/total_time * 100;
 
-    if real_elapsed != it.elapsed_at_root {
-      percent_with_children := (cast(float64)it.elapsed_at_root)/total_time * 100;
-      log("  %[%]: % (%0%%, %0%% w/ children)", it.name, it.hit_count, real_elapsed, percent, percent_with_children);
+    if it.elapsed_exclusive != it.elapsed_inclusive {
+      percent_with_children := (cast(float64)it.elapsed_inclusive)/total_time * 100;
+      log("  %[%]: % (%0%%, %0%% w/ children)", it.name, it.hit_count, it.elapsed_exclusive, percent, percent_with_children);
     }
     else {
-      log("  %[%]: % (%0%%)", it.name, it.hit_count, real_elapsed, percent);
+      log("  %[%]: % (%0%%)", it.name, it.hit_count, it.elapsed_exclusive, percent);
     }
 
     percent_sum += percent;
