@@ -60,7 +60,7 @@ main :: () {
 
   sum: float64;
   {
-    time_block("Sum");
+    time_block("Sum", byte_count = byte_count(extracted_pairs));
 
     for extracted_pairs {
       sum += reference_haversine(it, EARTH_RADIUS);

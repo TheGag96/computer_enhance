@@ -5,6 +5,7 @@ Timer_Data :: struct {
   elapsed_exclusive: u64;  // Excludes time spent in children
   elapsed_inclusive: u64;  // Includes time spent in children
   hit_count: u64;
+  processed_byte_count: u64;
   name: string;
 }
 
@@ -21,15 +22,16 @@ begin_profile :: () {
   }
 }
 
-time_function :: () #expand {
+time_function :: (byte_count: u64 = 0) #expand {
   this_timer_index :: #run unique_timer_index(#procedure_name());
 
-  parent_index          := g_profiler_parent;
-  g_profiler_parent      = this_timer_index;
-  timer_data            := *g_timer_info[this_timer_index];
-  old_elapsed_inclusive := timer_data.elapsed_inclusive;
-  timer_data.name        = #procedure_name();
-  start                 := rdtsc();
+  parent_index                    := g_profiler_parent;
+  g_profiler_parent                = this_timer_index;
+  timer_data                      := *g_timer_info[this_timer_index];
+  old_elapsed_inclusive           := timer_data.elapsed_inclusive;
+  timer_data.name                  = #procedure_name();
+  timer_data.processed_byte_count += byte_count;
+  start                           := rdtsc();
 
   `defer {
     end := rdtsc();
@@ -47,15 +49,16 @@ time_function :: () #expand {
   }
 }
 
-time_block :: ($name: string) #expand {
+time_block :: ($name: string, byte_count: u64 = 0) #expand {
   this_timer_index :: #run unique_timer_index(name);
 
-  parent_index          := g_profiler_parent;
-  g_profiler_parent      = this_timer_index;
-  timer_data            := *g_timer_info[this_timer_index];
-  old_elapsed_inclusive := timer_data.elapsed_inclusive;
-  timer_data.name        = name;
-  start                 := rdtsc();
+  parent_index                    := g_profiler_parent;
+  g_profiler_parent                =  this_timer_index;
+  timer_data                      := *g_timer_info[this_timer_index];
+  old_elapsed_inclusive           := timer_data.elapsed_inclusive;
+  timer_data.name                  =  name;
+  timer_data.processed_byte_count += byte_count;
+  start                           := rdtsc();
 
   `defer {
     end := rdtsc();
@@ -70,6 +73,20 @@ time_block :: ($name: string) #expand {
 
     g_profiler_parent             = parent_index;
     timer_data.hit_count         += 1;
+  }
+}
+
+byte_count :: inline (thing: $T) -> u64 {
+  ti_type :: #run (cast(*Type_Info) T).type;
+
+  #if ti_type == .ARRAY || ti_type == .STRING {
+    return byte_count(thing[0]) * (cast(u64) thing.count);
+  }
+  else #if ti_type == .POINTER {
+    return byte_count(thing.*);
+  }
+  else {
+    return xx size_of(T);
   }
 }
 
@@ -84,6 +101,8 @@ unique_timer_index :: ($name: string) -> int {
 end_profile_and_log :: () {
   profiling_end_time := rdtsc();
   total_time         := profiling_end_time - g_profiling_start_time;
+
+  auto_release_temp();
 
   // Estimate CPU frequency
   cpu_freq_estimated := () -> int {
@@ -103,13 +122,25 @@ end_profile_and_log :: () {
     if !it.name.count  continue;
     percent      := (cast(float64)it.elapsed_exclusive)/total_time * 100;
 
+    children_part, data_part: string;
+
     if it.elapsed_exclusive != it.elapsed_inclusive {
       percent_with_children := (cast(float64)it.elapsed_inclusive)/total_time * 100;
-      log("  %[%]: % (%0%%, %0%% w/ children)", it.name, it.hit_count, it.elapsed_exclusive, percent, percent_with_children);
+      children_part = tprint(", %0%% w/ children", percent_with_children);
     }
-    else {
-      log("  %[%]: % (%0%%)", it.name, it.hit_count, it.elapsed_exclusive, percent);
+
+    if it.processed_byte_count {
+      seconds              := it.elapsed_inclusive    / (cast(float64) cpu_freq_estimated);
+      bytes_per_second     := it.processed_byte_count / seconds;
+      megabytes            := it.processed_byte_count / (cast(float64) (1024*1024));
+      gigabytes_per_second := bytes_per_second        / (cast(float64) (1024*1024*1024));
+
+      log("% % % %", seconds, bytes_per_second, megabytes, gigabytes_per_second);
+
+      data_part = tprint(", % MB  @ % GB/s", megabytes, gigabytes_per_second);
     }
+
+    log("  %[%]: % (%0%%%0%0)", it.name, it.hit_count, it.elapsed_exclusive, percent, children_part, data_part);
 
     percent_sum += percent;
   }
