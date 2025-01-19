@@ -34,12 +34,12 @@ main :: () {
   // random_seed(current_time_monotonic().low);
   random_seed(ifx seed_val == 0 then current_time_monotonic().low else seed_val);
 
-  cluster_lat := random_get_within_range(LATITUDE_MIN,  LATITUDE_MAX);
-  cluster_lon := random_get_within_range(LONGITUDE_MIN, LONGITUDE_MAX);
 
   log("{\"pairs\": [");
 
   for 1..NUM_CLUSTERS {
+    cluster_lat    := random_get_within_range(LATITUDE_MIN,  LATITUDE_MAX);
+    cluster_lon    := random_get_within_range(LONGITUDE_MIN, LONGITUDE_MAX);
     cluster_radius := random_get_within_range(CLUSTER_RADIUS_MIN, CLUSTER_RADIUS_MAX);
     num_in_cluster := num_pairs / NUM_CLUSTERS;
 
