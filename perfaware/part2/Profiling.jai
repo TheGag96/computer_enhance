@@ -126,7 +126,7 @@ end_profile_and_log :: () {
 
     if it.elapsed_exclusive != it.elapsed_inclusive {
       percent_with_children := (cast(float64)it.elapsed_inclusive)/total_time * 100;
-      children_part = tprint(", %0%% w/ children", percent_with_children);
+      children_part = tprint(", %0\% w/ children", percent_with_children);
     }
 
     if it.processed_byte_count {
@@ -140,7 +140,7 @@ end_profile_and_log :: () {
       data_part = tprint(", % MB  @ % GB/s", megabytes, gigabytes_per_second);
     }
 
-    log("  %[%]: % (%0%%%0%0)", it.name, it.hit_count, it.elapsed_exclusive, percent, children_part, data_part);
+    log("  %[%]: % (%0\%%0%0)", it.name, it.hit_count, it.elapsed_exclusive, percent, children_part, data_part);
 
     percent_sum += percent;
   }

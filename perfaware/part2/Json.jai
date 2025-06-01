@@ -82,7 +82,7 @@ lex_json_string :: (text: string) -> (tokens: *Token, success: bool) {
   line   := 1;
 
   lex_error :: ($format: string, args: ..Any) #expand {
-    log((#run tprint("JSON lex error (line %%, column %%): %", format)), ..args, flags = .ERROR);
+    log((#run tprint("JSON lex error (line \%, column \%): %", format)), ..args, flags = .ERROR);
     `return null, false;
   }
 
@@ -216,7 +216,7 @@ lex_json_string :: (text: string) -> (tokens: *Token, success: bool) {
 //////////////////////////////
 
 parse_error :: (return_val: $T, $format: string, args: ..Any) #expand {
-  log((#run tprint("JSON parse error (line %%, column %%): %", format)), ..args, flags = .ERROR);
+  log((#run tprint("JSON parse error (line \%, column \%): %", format)), ..args, flags = .ERROR);
   `return return_val, `tokens, false;
 }
 
@@ -429,7 +429,7 @@ get :: (val: Json_Val, path: ..Any) -> (result: Json_Val, success: bool) {
       }
 
       index := (cast(*string) it.value_pointer).*;
-      field_value, success := table_find(*object.*.fields, index);
+      success, field_value := table_find_new(*object.*.fields, index);
 
       if !success {
         usage_error(Json_Val.{}, "Tried looking up into an object, but the key given (\"%\") wasn't found!", field_value);

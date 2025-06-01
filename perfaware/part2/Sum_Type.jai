@@ -55,7 +55,7 @@ Sum_Type :: struct(value_types: ..Type) {
     print_to_builder(*builder, "  if #complete sum.tag == {\n");
     for 0..value_types.count-1 {
       print_to_builder(*builder, "    case #run cast(type_of(sum.tag)) field_id_%;\n", it);
-      print_to_builder(*builder, "      it := #insert #run tprint(\"*sum.data.value_%%;\", field_id_%);\n", it);
+      print_to_builder(*builder, "      it := #insert #run tprint(\"*sum.data.value_\%;\", field_id_%);\n", it);
       print_to_builder(*builder, "      #insert,scope() code_%;\n", it);
     }
     print_to_builder(*builder, "  }\n");
