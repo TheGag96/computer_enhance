@@ -86,5 +86,7 @@ main :: () {
   }
 
   end_profile_and_log();
+
+  log_telemetry();
 }
 
